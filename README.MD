@@ -87,13 +87,13 @@ Each block above corresponds to one of the five task tracks described below and 
 
 ## Track Breakdown
 
-| Track | Owner(s) | Description |
-|---|---|---|
-| Perception and Object Detection | Vishudha | Camera-based detection and classification of Indian road agents, semantic free-space estimation, and pothole/negative-obstacle detection |
-| Sensor Fusion and Tracking | Pranava and Yash | Fusing camera, LiDAR, and radar into a single tracked world model, handling occlusion and sensor dropout |
-| Prediction and Trajectory Forecasting | Swayam | Forecasting short-term, multi-modal, non-lane-based motion for surrounding agents |
-| Path Planning and Decision Logic | Saarthak | Behavior state machine and geometric path planning over a dynamic costmap |
-| Vehicle Dynamics and Control | Sahil | Converting planned paths into steering, throttle, and brake commands while maintaining ride comfort |
+| Track |  Description |
+|---|---|
+| Perception and Object Detection | Camera-based detection and classification of Indian road agents, semantic free-space estimation, and pothole/negative-obstacle detection |
+| Sensor Fusion and Tracking | Fusing camera, LiDAR, and radar into a single tracked world model, handling occlusion and sensor dropout |
+| Prediction and Trajectory Forecasting | Forecasting short-term, multi-modal, non-lane-based motion for surrounding agents |
+| Path Planning and Decision Logic |  Behavior state machine and geometric path planning over a dynamic costmap |
+| Vehicle Dynamics and Control | Converting planned paths into steering, throttle, and brake commands while maintaining ride comfort |
 
 ## Perception in Detail
 
