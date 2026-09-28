@@ -1,0 +1,200 @@
+# Topic 4: Sensor Fusion & Multi-Object Tracking
+
+**Team Epsilon | Smart India Hackathon 2026 | Problem Statement: SIH26037**  
+*Adaptive Path Planning and Collision Avoidance for Autonomous Vehicles on Unstructured Indian Roads*
+
+---
+
+## 1. Executive Summary
+
+Autonomous navigation on unstructured Indian roads presents severe challenges absent from standardized Western benchmarks:
+1. **Heterogeneous, Non-Lane-Based Traffic:** Erratic road users (e.g. auto-rickshaws, two-wheelers, pushcarts, and cattle) frequently weave diagonally across informal lanes without signaling.
+2. **Sensor Degradation & Optical Dropouts:** Heavy dust, thermal glare, rapid shadow transitions, and camera occlusions cause vision detection dropouts ($P_d$ drops from $0.90$ to $0.40-0.65$).
+3. **Asynchronous Multi-Rate Sensing:** Automotive radars ($20\text{ Hz}$, $50\text{ ms}$) and edge deep learning vision detectors ($10\text{ Hz}$, $100\text{ ms}$ inference cycle) stream at different rates.
+
+This module delivers a robust, multi-rate **Sensor Fusion & Multi-Object Tracking (MOT)** pipeline implemented in MATLAB using the Automated Driving Toolbox and Sensor Fusion and Tracking Toolbox. It compares the **Standard Constant Velocity Kalman Filter** against the **Interacting Multiple Model (IMM)** filter across extended 20-second dynamic swerve scenarios under nominal, degraded, and realistic autonomous vehicle (AV) capture rates.
+
+---
+
+## 2. Sensor Architecture & Asynchronous Multi-Rate Pipeline
+
+In production autonomous vehicles, sensors do not sample simultaneously:
+- **Base Vehicle Bus / IMU Clock ($100\text{ Hz}$, $10\text{ ms}$):** Vehicle odometry, dead reckoning, and prediction clock.
+- **Front Long-Range Radar ($20\text{ Hz}$, $50\text{ ms}$ period):** High longitudinal range and Doppler velocity precision; coarse angular (azimuth) resolution ($12^\circ - 15^\circ$).
+- **Rear / Corner Radar ($10\text{ Hz}$, $100\text{ ms}$ period):** Blind spot and overtaking monitor.
+- **Front Camera 3D Object Detection ($10\text{ Hz}$, $100\text{ ms}$ period):** Deep neural network (e.g., YOLO-3D / BEVFormer) inference cycle on automotive edge compute (e.g., NVIDIA DRIVE Orin / TI TDA4).
+- **Vision Dropouts ($P_d = 0.65$ nominal, $0.40$ degraded):** Simulates lens dust, direct sun glare, and vehicle occlusions.
+
+```
+       100 Hz Base CAN / IMU Clock (10 ms)
+  -------------------------------------------------
+  t = 0.00s : [Idle Tick] -> Motion Extrapolation
+  t = 0.05s : [Radar Event] -> Radar Measurement Update (20 Hz)
+  t = 0.10s : [Joint Event] -> Joint Radar + Camera Fusion (10 Hz)
+  t = 0.15s : [Radar Event] -> Radar Update (Camera Inference Ongoing)
+  t = 0.20s : [Dropout Event] -> Camera Misses (Pd=0.65) -> Radar Bridges Gap
+```
+
+---
+
+## 3. Tracking Algorithms
+
+### 3.1 State Representation & Measurement Model
+Each confirmed object track maintains a 6D kinematic state vector in ego Cartesian coordinates:
+$$\mathbf{x} = \begin{bmatrix} x & v_x & y & v_y & z & v_z \end{bmatrix}^T$$
+
+Measurements $\mathbf{z} = \begin{bmatrix} x_m & y_m & z_m & v_{xm} & v_{ym} & v_{zm} \end{bmatrix}^T$ are mapped through measurement matrix $H$:
+$$H = \begin{bmatrix} 
+1 & 0 & 0 & 0 & 0 & 0 \\ 
+0 & 0 & 1 & 0 & 0 & 0 \\ 
+0 & 0 & 0 & 0 & 1 & 0 \\ 
+0 & 1 & 0 & 0 & 0 & 0 \\ 
+0 & 0 & 0 & 1 & 0 & 0 \\ 
+0 & 0 & 0 & 0 & 0 & 1 
+\end{bmatrix}, \quad \mathbf{z} = H \mathbf{x} + \mathbf{v}, \quad \mathbf{v} \sim \mathcal{N}(0, R)$$
+
+### 3.2 Standard Constant Velocity Kalman Filter (KF)
+- **Assumption:** Dynamic actors maintain constant velocity with small random accelerations.
+- **Process Noise:** $Q = 0.5 \cdot I_3$ ($\text{m/s}^2$).
+- **Characteristics:** Acts as a smooth noise filter, cleanly rejecting radar azimuth jitter during steady cruising.
+
+### 3.3 Interacting Multiple Model (IMM) Filter
+- **Hypothesis:** Target motion switches probabilistically between distinct behavioral modes.
+  - **Model 1 (Lane Cruising):** Low acceleration noise $Q_1 = 0.5 \cdot I_3$ ($\text{m/s}^2$).
+  - **Model 2 (Aggressive Swerve / Maneuver):** High acceleration noise $Q_2 = 25.0 \cdot I_3$ ($\text{m/s}^2$).
+  - **Markov Transition Matrix:**
+    $$\Pi = \begin{bmatrix} 0.95 & 0.05 \\ 0.10 & 0.90 \end{bmatrix}$$
+- **Characteristics:** Dynamically shifts mode probability $\mu_j$ based on measurement innovation likelihood, preventing filter lag during sudden, sharp directional changes.
+
+### 3.4 Data Association: Global Nearest Neighbor (GNN)
+Track-to-measurement association is solved globally via Hungarian / Munkres optimization using normalized **Mahalanobis distance gating**:
+$$d_M^2 = (\mathbf{z} - H\hat{\mathbf{x}})^T S^{-1} (\mathbf{z} - H\hat{\mathbf{x}}) \le \gamma_{\text{gate}}$$
+- Confirmation threshold: $[2 \ 3]$ (2 detections within 3 frames).
+- Deletion threshold: $[5 \ 5]$ (5 consecutive missed frames drops track).
+
+---
+
+## 4. 20-Second Benchmark Results
+
+Tracking errors were captured across a 20-second trajectory (450m highway) where an Auto-Rickshaw executes **3 aggressive multi-lane swerves** while a Passing Car overtakes at $54\text{ km/h}$.
+
+### Summary Table
+
+| Evaluation Regime | Sensor Sampling Mode | Filter Architecture | Mean Position Error (m) | Peak Swerve Error (m) | RMSE (m) | Key Takeaway |
+| :--- | :--- | :--- | :---: | :---: | :---: | :--- |
+| **1. Nominal Conditions** | $20\text{ Hz}$ Synchronous | **Standard KF** | $0.952$ | $1.594$ | $0.956$ | Steady straight-line filtering |
+| **1. Nominal Conditions** | $20\text{ Hz}$ Synchronous | **IMM Filter** | **$0.887$** | **$1.021$** | **$0.903$** | **$35.9\%$ lower peak swerve lag** |
+| **2. Degraded Sensors** | $20\text{ Hz}$ Synchronous ($15^\circ$ Az, $P_d=0.4$) | **Standard KF** | $0.896$ | $1.019$ | $0.904$ | Fewer confirmed clutter tracks |
+| **2. Degraded Sensors** | $20\text{ Hz}$ Synchronous ($15^\circ$ Az, $P_d=0.4$) | **IMM Filter** | $0.895$ | $1.027$ | $0.904$ | Fast recovery across dropouts |
+| **3. Realistic Production AV** | $100\text{ Hz}$ Bus, $20\text{ Hz}$ Radar, $10\text{ Hz}$ Cam | **Standard KF** | $0.877$ | $1.001$ | $0.889$ | Smoother against radar jitter |
+| **3. Realistic Production AV** | $100\text{ Hz}$ Bus, $20\text{ Hz}$ Radar, $10\text{ Hz}$ Cam | **IMM Filter** | $0.889$ | $1.002$ | $0.898$ | Resilient multi-rate tracking |
+
+---
+
+## 5. Physical & Estimation Analysis: Why IMM vs. Regular Kalman Behaves As Observed
+
+### 5.1 Why Does Standard KF Slightly Outperform IMM Under Realistic Multi-Rate Capture?
+In the realistic AV capture benchmark ($20\text{ Hz}$ radar, $10\text{ Hz}$ camera), the Standard KF achieved $0.877\text{ m}$ mean error vs. $0.889\text{ m}$ for the IMM filter ($1.2\text{ cm}$ difference). 
+
+Two fundamental estimation phenomena explain this result:
+
+1. **The Swerve is Kinematically Smooth ($0.04\text{ g}$), Not a Discontinuous Shock:**
+   - The auto-rickshaw shifts laterally by $3.6\text{ m}$ over $3.0\text{ seconds}$ ($\approx 1.2\text{ m/s}$ lateral speed, $a_{\text{lat}} \approx 0.4\text{ m/s}^2 \approx 0.04\text{ g}$).
+   - With radar updating every $50\text{ ms}$, the lateral displacement change per frame is only $\frac{1}{2} a \Delta t^2 \approx 0.5\text{ millimeters}$.
+   - To a constant velocity filter receiving updates every $50\text{ ms}$, this motion is virtually indistinguishable from a straight line, allowing it to track cleanly without lag.
+
+2. **The Measurement Noise Amplification (Jitter) Penalty:**
+   - IMM constantly mixes Model 1 ($Q=0.5$) and Model 2 ($Q=25$). Even during straight driving, Model 2 maintains a baseline probability ($\sim 10-20\%$).
+   - Model 2 has a large Kalman Gain and heavily weights incoming raw measurements.
+   - Because radar has $12^\circ$ azimuth angular noise ($\pm 0.8\text{ m}$ lateral jitter), Model 2 mistakes sensor noise for real vehicle motion and **chases the noise**.
+   - The Standard KF acts as a pure low-pass filter, ignoring the radar jitter and holding the smooth center-line.
+
+### 5.2 When Is IMM Decisively Superior to Standard Kalman?
+IMM is mission-critical in real Indian traffic under three high-entropy scenarios:
+1. **Emergency Hard Braking ($> 0.6\text{ g}$):** When a vehicle ahead stops abruptly, a Standard CV filter continues extrapolating forward at $40\text{ km/h}$, causing severe overshoot ($3-5\text{ m}$ lag). IMM detects the innovation spike, transfers $95\%$ probability to its high-noise mode, and converges to the stop within $<100\text{ ms}$.
+2. **Aggressive Cutting / Right-Angle Turn:** Violent swerves ($> 3\text{ m/s}^2$) cause the Standard KF to temporarily drop or lag outside the lane boundary.
+3. **Sensor Dropout in a Curve:** When vision is lost for $1-2\text{ seconds}$ while an actor is turning, Standard KF projects straight off-road. IMM maintains expanded uncertainty ellipses that reacquire the vehicle immediately upon sensor recovery.
+
+---
+
+## 6. Visual Gallery
+
+### A. Realistic AV Multi-Rate Asynchronous Capture Benchmark
+*Shows $20\text{ Hz}$ Front Radar ($50\text{ ms}$), $10\text{ Hz}$ Camera DNN ($100\text{ ms}$), vision dropouts ($P_d=0.65$), 20-second tracking error curves, and 2D relative swerve trajectory.*
+
+![Realistic AV Multi-Rate Tracking Benchmark](realistic_av_tracking_error_20s.png)
+
+### B. Standard KF vs. IMM 20-Second Benchmark
+*Side-by-side comparative error tracking over 400 time steps.*
+
+![KF vs IMM Comparison](kf_vs_imm_comparison_20s.png)
+
+### C. Live Bird's-Eye View Simulation
+*Shows moving ego vehicle (blue box), sensor coverage cones, road boundary markings, raw radar/vision detections, and confirmed track covariance ellipses.*
+
+![Topic 4 Bird's-Eye Simulation Result](topic4_simulation_result.png)
+
+### D. Single-Run 20-Second Tracking Error Profile
+*Captures auto-rickshaw and passing car position errors with annotated swerve windows.*
+
+![Topic 4 Tracking Error 20s](topic4_tracking_error_20s.png)
+
+---
+
+## 7. Directory Structure & File Index
+
+```
+Sensor_fusion/
+├── README.md                           # This comprehensive technical report
+├── sih26037_sensor_fusion_report.md    # Full academic literature review & architecture report
+│
+├── topic4_sensor_fusion.m             # Primary interactive simulation with Bird's-Eye view
+├── compare_kf_vs_imm.m                # Automated 20-second comparative KF vs IMM benchmark
+├── realistic_av_capture_benchmark.m   # Multi-rate AV capture benchmark (100Hz clock, 20Hz radar, 10Hz cam)
+├── kalman_2d_demo.m                   # Educational 2D Kalman math demonstration
+│
+├── topic4_simulation_result.png       # Bird's-eye view simulation snapshot
+├── topic4_tracking_error_20s.png      # 20-second tracking error plot from topic4_sensor_fusion.m
+├── kf_vs_imm_comparison_20s.png       # 20-second KF vs IMM comparison plot
+├── realistic_av_tracking_error_20s.png # 3-panel multi-rate sensor timeline and tracking error plot
+├── kalman_2d_results.png              # 3-panel mathematical 2D Kalman results
+│
+├── topic4_tracking_results_20s.mat    # Saved tracking data arrays from topic4_sensor_fusion.m
+├── kf_vs_imm_errors_20s.mat           # Saved error arrays from compare_kf_vs_imm.m
+└── realistic_av_tracking_errors_20s.mat# Saved error arrays from realistic_av_capture_benchmark.m
+```
+
+---
+
+## 8. How to Run in MATLAB
+
+### Prerequisites
+- MATLAB R2022b or later (validated on MATLAB R2025b).
+- **Automated Driving Toolbox**
+- **Sensor Fusion and Tracking Toolbox**
+
+### Quick Start Commands
+Run directly in the MATLAB Command Window:
+
+```matlab
+% Navigate to folder
+cd('Sensor_fusion');
+
+% 1. Run Main Interactive Simulation (Nominal Standard KF, 20s)
+useIMM = false; degradeSensors = false; useRealisticAVRates = false;
+topic4_sensor_fusion
+
+% 2. Run Main Simulation with IMM Filter & Degraded Sensors
+useIMM = true; degradeSensors = true; useRealisticAVRates = false;
+topic4_sensor_fusion
+
+% 3. Run Realistic AV Multi-Rate Simulation (100 Hz Clock, 20 Hz Radar, 10 Hz Camera)
+useIMM = true; degradeSensors = false; useRealisticAVRates = true;
+topic4_sensor_fusion
+
+% 4. Run Dedicated Multi-Rate AV Benchmark (Generates realistic_av_tracking_error_20s.png)
+realistic_av_capture_benchmark
+
+% 5. Run KF vs. IMM Comparative Benchmark
+compare_kf_vs_imm
+```
