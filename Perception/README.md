@@ -46,11 +46,11 @@ This directory implements the **Perception Pipeline** utilizing:
 |      ├── Far Horizon Band (40 - 150m): Rows y in [400, 760 px] -> 640x360 Slices (35% overlap)    |
 |      └── Pothole / Near Road Band (15 - 30m): Rows y in [600, 1000 px]                             |
 |      - Preserves 1:1 native optical sensor resolution.                                            |
-|      - Discovers distant small hazards (pedestrians, bikes, stalled trucks) 8.1s earlier!        |
+|      - Tiles letterboxed without upscaling; 4 tiles/band always span the full image width.      |
 |                                                                                                   |
-|  (C) TILE REMAPPING & MULTICLASS NMS:                                                             |
+|  (C) TILE REMAPPING, PER-TILE NMS & FRAGMENT-AWARE MERGE:                                         |
 |      Remap tile coordinates:  x_canvas = x_tile + x_offset,  y_canvas = y_tile + y_offset        |
-|      Multiclass Non-Maximum Suppression (IoU = 0.35) merges full-frame + slice detections.        |
+|      Per-inference NMS (IoU 0.45), then cross-tile merge (IoU 0.45 or IoS 0.6 for fragments).    |
 +---------------------------------------------------------------------------------------------------+
                                    │
                                    ▼  [3D Measurement Stream]
@@ -62,7 +62,7 @@ This directory implements the **Perception Pipeline** utilizing:
 ## 3. The Small & Distant Hazard Bottleneck on Indian Roads
 
 ### 3.1 Optical Resolution Degradation Under Naive Resizing
-Standard deep learning vision detectors operate at a fixed square input tensor (e.g. $640 \times 640\text{ px}$). When full $1920 \times 1080\text{ px}$ automotive camera feeds are resized directly to $640 \times 640$, visual resolution degrades by a factor of **$3.0\times$ horizontally** and **$1.69\times$ vertically**.
+Standard deep learning vision detectors operate at a fixed square input tensor (e.g. $640 \times 640\text{ px}$). When full $1920 \times 1080\text{ px}$ automotive camera feeds are letterboxed (aspect-preserving) to $640 \times 640$, visual resolution degrades by a factor of **$3.0\times$** in both axes.
 
 Under pinhole perspective geometry:
 
@@ -77,7 +77,7 @@ For a typical $1080\text{p}$ automotive camera ($f_y \approx 1200\text{ px}$):
 - At highway cruising speeds ($80\text{ km/h} \approx 22.2\text{ m/s}$), detecting a hazard at $45\text{ m}$ gives the vehicle only **$2.0\text{ seconds}$** to brake or swerve—insufficient for safe emergency avoidance on unpredictable roads.
 
 ### 3.2 Resolution Recovery via SAHI Slicing
-By cropping localized $640\text{ px}$ tiles directly from the unscaled $1080\text{p}$ image, **native $1:1$ sensor resolution is 100% preserved**. The distant pedestrian retains its full $18\text{ px}$ height, enabling reliable detection at $100\text{–}150\text{ m}$, providing **$+8.11\text{ seconds}$ and $+45\text{ meters}$ earlier warning lead time** to downstream path planning.
+By cropping localized $640\text{ px}$ tiles directly from the unscaled $1080\text{p}$ image, **native $1:1$ sensor resolution is 100% preserved**. The distant pedestrian retains its full $18\text{ px}$ height, extending detection range for small road users toward $100\text{–}150\text{ m}$. In the `Sensor_fusion` Monte Carlo benchmark this confirms a 1.6 m bicycle at ~174 m instead of ~64 m (**+13.2 s earlier**, under an assumed $p_{det}=0.5$ at 12 px detection curve).
 
 ---
 
@@ -93,13 +93,16 @@ Rather than tiling the entire image (which wastes compute on sky and ego-hood), 
 2. **Pothole / Near Road Band ($15\text{–}30\text{ m}$ Lookahead):**
    - Bounding row coordinates: $y \in [600, 1000\text{ px}]$.
    - Focuses on the immediate road surface texture for negative obstacle / depression extraction.
-3. **Coordinate Remapping & Multiclass NMS:**
+3. **Coordinate Remapping, NMS & Fragment-Aware Merging:**
    - Tile coordinates $[x_{\text{tile}}, y_{\text{tile}}, w_{\text{tile}}, h_{\text{tile}}]$ are remapped back to full-frame canvas coordinates:
      ```
      x_canvas = x_tile + x_offset
      y_canvas = y_tile + y_offset
      ```
-   - Cross-scale multiclass Non-Maximum Suppression (NMS) with an IoU threshold of $\gamma = 0.35$ eliminates duplicate bounding boxes between overlapping tiles and the full-frame pass.
+   - Each inference (full frame or tile) gets its own class-aware NMS (IoU $0.45$).
+   - Detections from *different* inferences are then merged greedily: same-class boxes group if IoU $> 0.45$, or if intersection-over-smaller (IoS) $> 0.6$ and the pair looks like a fragment (one box touches an interior tile edge, or is < 50% of the other's area). Truncated boxes rank below complete ones, and a truncated group leader is grown to the union of its truncated partners, which reconstructs objects split across tiles.
+   - Plain IoU-NMS cannot remove a half-object cut off by a tile edge (its IoU with the full box is ~0.5 or lower). In the previous version **19 of the 40 "new" SAHI detections were such fragments**; the merge above removes all of them while keeping tightly parked two-wheelers separate.
+   - Tiles are letterboxed without upscaling (the previous version stretched 640×360 crops to 640×640), and tile origins are spaced evenly so they always cover the full image width (the previous stride of 420 px skipped the right-most 20 px).
 
 ---
 
@@ -109,26 +112,39 @@ The SAHI slicing engine was evaluated across 4 real camera angles from the India
 
 ### 5.1 Multi-View Detection Benchmark Summary
 
-| Test Frame | Camera Viewpoint | Scene Context | Standard Full-Frame | C3 YOLOv8s + SAHI | New Distant Hazards Discovered | Detection Gain |
-| :--- | :--- | :--- | :---: | :---: | :---: | :---: |
-| `highquality_16k` | Front Center (1080p) | Dense Urban Bangalore (Flyover, Crowded Lanes) | 38 | **59** | **+17** | **+55.3%** |
-| `frontNear` | Front Bumper | Village / Suburban Road (Open Horizon) | 5 | **9** | **+4** | **+80.0%** |
-| `rearNear` | Rear Wide | Highway Overtaking & Tailgaters | 7 | **20** | **+12** | **+185.7%** |
-| `sideLeft` | Side Flank | Lateral Blind-Spot & Pedestrians | 7 | **15** | **+7** | **+114.3%** |
-| **Total Across All Views** | — | — | **57** | **103** | **+40** | **+80.7% Overall Gain** |
+"New" = a SAHI detection with no same-class full-frame box matching it (IoU > 0.35 or IoS > 0.6). This is the conservative measure: the SAHI total can also grow when full-frame covered two adjacent objects (e.g. parked bikes) with one box.
+
+| Test Frame | Camera Viewpoint | Scene Context | Standard Full-Frame | C3 YOLOv8s + SAHI | New Objects (no full-frame match) |
+| :--- | :--- | :--- | :---: | :---: | :---: |
+| `highquality_16k` | Front Center (1080p) | Dense Urban Bangalore (Flyover, Crowded Lanes) | 42 | **59** | **+10** |
+| `frontNear` | Front Bumper | Village / Suburban Road (Open Horizon) | 7 | **13** | **+6** |
+| `rearNear` | Rear Wide | Highway Overtaking & Tailgaters | 7 | **12** | **+5** |
+| `sideLeft` | Side Flank | Lateral Blind-Spot & Pedestrians | 8 | **10** | **+2** |
+| **Total Across All Views** | — | — | **64** | **94** | **+23 (+36%)** |
+
+Compared with the previous engine (57 full-frame / 103 SAHI / +40 new): letterboxing raised full-frame detections from 57 to 64, and 19 of the previous 40 "new" detections were tile-edge fragments of already-detected objects, which the fragment-aware merge now removes. Without IDD ground-truth labels for these frames, precision/recall is not measured; these are detection counts.
+
+#### Runtime (CPU, ONNX Runtime, per 1080p frame)
+
+| | Previous engine | Current engine | `--fast` (single merged band) |
+| :--- | :---: | :---: | :---: |
+| Full-frame pass | 85 ms | 72 ms | 72 ms |
+| SAHI tiles | 8 stretched tiles | 8 letterboxed tiles, ~500 ms | 4 tiles, ~265 ms |
+| **Whole frame** | **~1200 ms** | **~575 ms** | **~340 ms** |
+
+`--fast` uses one 600 px band (rows 400–1000, still 1:1) instead of the two overlapping bands; on the 4 test frames it finds 18 instead of 23 new objects. The ONNX graph has a fixed batch size of 1, so tiles run sequentially; exporting with a dynamic batch axis (or using the CUDA/DirectML execution provider, picked automatically if installed) is the next speed-up.
 
 ### 5.2 Class Breakdown in Dense Bangalore Traffic (`highquality_16k`)
 
-In the dense urban Bangalore street scene, SAHI dramatically recovered vulnerable road users in the distant background:
-- `person`: $3 \rightarrow 11$ (**$+8$ distant pedestrians detected**, +267% increase).
-- `autorickshaw`: $1 \rightarrow 6$ (**$+5$ distant auto-rickshaws detected**, +500% increase).
-- `motorcycle`: $16 \rightarrow 22$ (**$+6$ distant two-wheelers detected**, +37.5% increase).
-- `rider`: $8 \rightarrow 9$ (**$+1$ rider detected**).
-- `car`: $10 \rightarrow 11$ (**$+1$ distant car detected**).
+- `person`: $3 \rightarrow 9$ (**$+6$ distant pedestrians**).
+- `motorcycle`: $19 \rightarrow 24$ (**$+5$ two-wheelers**).
+- `rider`: $6 \rightarrow 9$ (**$+3$ riders**).
+- `autorickshaw`: $3 \rightarrow 4$ (**$+1$**).
+- `car`: $11 \rightarrow 12$ (**$+1$**).
 
 ![SAHI Slicing Perception Benchmark](sahi_slicing_comparison.png)
 
-*Figure: (Top-Left) Standard Full-Frame YOLOv8s detection missing distant hazards (38 detections). (Top-Right) C3 YOLOv8s + SAHI Multi-Band Slicing with cyan markers pinpointing +17 newly discovered distant road users across Far and Near bands. (Bottom-Left) Class-wise detection gain breakdown in dense Bangalore traffic. (Bottom-Right) Mathematical resolution density curve proving the 3.0x optical pixel density advantage for hazards at 40–150m.*
+*Figure: (Top-Left) Standard Full-Frame YOLOv8s (42 detections). (Top-Right) C3 YOLOv8s + SAHI Dual-Band Slicing (59 detections) with cyan markers on the +10 objects that have no full-frame match; dashed boxes show the Far (rows 400–760) and Near (rows 600–1000) bands. (Bottom-Left) Class-wise detection gain breakdown in dense Bangalore traffic. (Bottom-Right) Mathematical resolution density curve proving the 3.0x optical pixel density advantage for hazards at 40–150m.*
 
 ---
 
@@ -147,7 +163,7 @@ Where:
 - `[c_x, c_y]`: Optical center principal point ($960, 540\text{ px}$).
 - `[u_center, v_bottom]`: Bounding box horizontal center and ground contact point.
 
-The projected 3D coordinates `[X, Z]` and class labels feed directly into `Sensor_fusion/c3_semantic_imm_tracker.m`, seeding confirmed tracks up to **$8.11\text{ seconds}$ earlier**.
+The projected 3D coordinates `[X, Z]` and class labels feed directly into `Sensor_fusion/c3_semantic_imm_tracker.m`, seeding confirmed tracks earlier. `sahi_engine.py` now also exports this flat-ground range estimate per detection (`ff_range_m`, `sahi_range_m`).
 
 ---
 
@@ -171,7 +187,9 @@ Perception/
 #### 1. Run Python Inference
 ```bash
 cd Perception
-python sahi_engine.py
+python sahi_engine.py            # dual-band (default)
+python sahi_engine.py --fast     # single merged band, ~2x faster SAHI pass
+python sahi_engine.py my_frames/ # any folder or list of images
 ```
 *Outputs `sahi_detection_results.mat` containing bounding boxes, confidence scores, labels, and new distant hazard flags.*
 

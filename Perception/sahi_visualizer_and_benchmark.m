@@ -38,19 +38,15 @@ sahi_labels = cellstr(data.sahi_labels);
 sahi_cls    = data.sahi_cls(:);
 is_new_sahi = logical(data.is_new_sahi(:));
 
+imgName = 'highquality_16k__BLR-2018-05-31_10-49-32__2018-05-31_10-58-6-131756_leftImg8bit.jpg';
+here = fileparts(mfilename('fullpath'));
 imgCandidates = {
-    fullfile('C3_detector_v1', 'C3_detector_v1', 'test_images', 'highquality_16k__BLR-2018-05-31_10-49-32__2018-05-31_10-58-6-131756_leftImg8bit.jpg'),
-    fullfile('..', 'C3_detector_v1', 'C3_detector_v1', 'test_images', 'highquality_16k__BLR-2018-05-31_10-49-32__2018-05-31_10-58-6-131756_leftImg8bit.jpg'),
-    fullfile('c:', 'Users', 'prana', 'Downloads', 'sih', 'C3_detector_v1', 'C3_detector_v1', 'test_images', 'highquality_16k__BLR-2018-05-31_10-49-32__2018-05-31_10-58-6-131756_leftImg8bit.jpg')
-};
-imgFile = '';
-for ic = 1:length(imgCandidates)
-    if isfile(imgCandidates{ic})
-        imgFile = imgCandidates{ic};
-        break;
-    end
-end
-assert(~isempty(imgFile), 'Cannot locate Bangalore test image');
+    fullfile(pwd, 'C3_detector_v1', 'C3_detector_v1', 'test_images', imgName), ...
+    fullfile(here, '..', 'C3_detector_v1', 'C3_detector_v1', 'test_images', imgName), ...
+    fullfile(here, '..', '..', 'C3_detector_v1', 'C3_detector_v1', 'test_images', imgName)};
+imgIdx = find(cellfun(@isfile, imgCandidates), 1);
+assert(~isempty(imgIdx), 'Cannot locate Bangalore test image');
+imgFile = imgCandidates{imgIdx};
 I = imread(imgFile);
 
 num_ff   = size(ff_boxes, 1);
@@ -59,8 +55,8 @@ num_new  = sum(is_new_sahi);
 
 fprintf('>> Dense Urban Frame Benchmark:\n');
 fprintf('   Standard Full-Frame YOLOv8s : %d detections\n', num_ff);
-fprintf('   C3 YOLOv8s + SAHI Slicing   : %d detections (+%d distant objects, +%.1f%% gain!)\n\n', ...
-    num_sahi, num_new, 100 * (num_sahi - num_ff) / num_ff);
+fprintf('   C3 YOLOv8s + SAHI Slicing   : %d detections (+%d objects with no full-frame match, +%.1f%%)\n\n', ...
+    num_sahi, num_new, 100 * num_new / num_ff);
 
 %% 2. Class Palette Definition
 classNames = {'person', 'rider', 'car', 'bus', 'truck', 'autorickshaw', ...
@@ -108,9 +104,16 @@ imshow(I); hold on;
 title(sprintf('C3 YOLOv8s + SAHI Multi-Band Slicing (Total: %d Detections | +%d New)', num_sahi, num_new), ...
     'FontSize', 11, 'FontWeight', 'bold', 'Color', [0.2 1.0 0.5]);
 
-% Draw SAHI far-band search horizon line
-yline(400, '--', 'Far Band (40-150m Horizon)', 'Color', [0.2 0.8 1.0], 'LineWidth', 1.5, 'LabelVerticalAlignment', 'bottom');
-yline(760, '--', 'Pothole/Near Band (15-30m)', 'Color', [1.0 0.8 0.2], 'LineWidth', 1.5, 'LabelVerticalAlignment', 'top');
+% Draw the two SAHI slicing bands (rows scale with image height; 1080p values shown)
+imH = size(I, 1); imW = size(I, 2);
+farBand  = [400 760]  * imH / 1080;
+nearBand = [600 1000] * imH / 1080;
+rectangle('Position', [2, farBand(1), imW - 4, diff(farBand)], 'EdgeColor', [0.2 0.8 1.0], ...
+    'LineStyle', '--', 'LineWidth', 1.5);
+rectangle('Position', [6, nearBand(1), imW - 12, diff(nearBand)], 'EdgeColor', [1.0 0.8 0.2], ...
+    'LineStyle', '--', 'LineWidth', 1.5);
+text(12, farBand(1) + 18, 'Far Band (40-150m)', 'Color', [0.2 0.8 1.0], 'FontSize', 8, 'FontWeight', 'bold');
+text(12, nearBand(2) - 18, 'Near Band (15-30m)', 'Color', [1.0 0.8 0.2], 'FontSize', 8, 'FontWeight', 'bold');
 
 for k = 1:num_sahi
     b = sahi_boxes(k, :);
@@ -155,13 +158,13 @@ title('Class-Wise Detection Gain (Dense Urban Bangalore IDD Frame)', ...
     'FontSize', 11, 'FontWeight', 'bold', 'Color', txt_white);
 legend({'Standard Full-Frame', 'C3 YOLOv8 + SAHI'}, ...
     'Location', 'northwest', 'TextColor', txt_white, 'Color', axes_dark, 'EdgeColor', grid_col);
-ylim([0 max(counts_sahi) + 5]);
+ylim([0 max([counts_ff; counts_sahi]) + 5]);
 
 % Value annotations above bars
 for i = 1:length(classes_to_plot)
     text(x_idx(i) - 0.18, counts_ff(i) + 0.8, num2str(counts_ff(i)), ...
         'Color', [1 0.8 0.8], 'FontSize', 8, 'FontWeight', 'bold');
-    text(x_idx(i) + 0.12, counts_sahi(i) + 0.8, sprintf('%d (+%d)', counts_sahi(i), counts_sahi(i)-counts_ff(i)), ...
+    text(x_idx(i) + 0.12, counts_sahi(i) + 0.8, sprintf('%d (%+d)', counts_sahi(i), counts_sahi(i)-counts_ff(i)), ...
         'Color', [0.6 1.0 0.6], 'FontSize', 8, 'FontWeight', 'bold');
 end
 
@@ -193,13 +196,14 @@ xlim([10 160]); ylim([0 120]);
 % Annotation box explaining the 3x resolution boost
 dim = [0.57 0.12 0.38 0.08];
 annotation('textbox', dim, 'String', ...
-    {'Key Architectural Advantage: Slicing preserves 1:1 optical pixel density,', ...
-     'giving distant hazards 3.0x higher resolution to seed tracks 8 seconds earlier!'}, ...
+    {'Key Architectural Advantage: letterboxed tiles keep 1:1 optical pixel density,', ...
+     'giving distant hazards 3.0x the pixels of the full-frame 640 px downscale.'}, ...
     'Color', [0.2 1.0 0.5], 'BackgroundColor', axes_dark, 'EdgeColor', [0.2 0.8 0.4], ...
     'FontSize', 9, 'FontWeight', 'bold', 'FitBoxToText', 'on');
 
 sgtitle({'Team Epsilon (SIH 26037): SAHI Slicing Perception Engine on India Driving Dataset', ...
-         'Dual-Band Road Slicing Benchmark: +55.3% Detection Gain & Distant Track Seeding'}, ...
+         sprintf('Dual-Band Road Slicing Benchmark: +%d New Objects (+%.1f%% vs Full-Frame)', ...
+                 num_new, 100 * num_new / num_ff)}, ...
         'FontSize', 13, 'FontWeight', 'bold', 'Color', txt_white);
 
 saveas(fig, 'sahi_slicing_comparison.png');
