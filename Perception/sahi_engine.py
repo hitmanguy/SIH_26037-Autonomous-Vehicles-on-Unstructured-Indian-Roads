@@ -20,8 +20,18 @@ import numpy as np, onnxruntime as ort, scipy.io as sio
 classes = ['person', 'rider', 'car', 'bus', 'truck', 'autorickshaw', 
            'motorcycle', 'bicycle', 'animal', 'traffic sign', 'traffic light', 'vehicle fallback']
 
-onnx_path = 'C3_detector_v1/C3_detector_v1/best_matlab.onnx'
-assert os.path.isfile(onnx_path), f"Cannot find {onnx_path}"
+candidate_onnx = [
+    'C3_detector_v1/C3_detector_v1/best_matlab.onnx',
+    '../C3_detector_v1/C3_detector_v1/best_matlab.onnx',
+    '../../C3_detector_v1/C3_detector_v1/best_matlab.onnx',
+    'c:/Users/prana/Downloads/sih/C3_detector_v1/C3_detector_v1/best_matlab.onnx'
+]
+onnx_path = None
+for cp in candidate_onnx:
+    if os.path.isfile(cp):
+        onnx_path = cp
+        break
+assert onnx_path is not None, f"Cannot find best_matlab.onnx in candidate paths"
 
 sess = ort.InferenceSession(onnx_path)
 
@@ -183,12 +193,23 @@ if __name__ == '__main__':
     print("  Executing SAHI Slicing Engine on India Driving Dataset (IDD)   ")
     print("=================================================================")
     
-    test_files = [
-        'C3_detector_v1/C3_detector_v1/test_images/frontNear__BLR-2018-04-19_18-06-55_frontNear__0000060.jpg',
-        'C3_detector_v1/C3_detector_v1/test_images/highquality_16k__BLR-2018-05-31_10-49-32__2018-05-31_10-58-6-131756_leftImg8bit.jpg',
-        'C3_detector_v1/C3_detector_v1/test_images/rearNear__BLR-2018-06-06_16-41-17_rearNear__0000330.jpg',
-        'C3_detector_v1/C3_detector_v1/test_images/sideLeft__BLR-2018-05-14_13-38-46_sideLeft__000264_r.jpg'
+    raw_names = [
+        'frontNear__BLR-2018-04-19_18-06-55_frontNear__0000060.jpg',
+        'highquality_16k__BLR-2018-05-31_10-49-32__2018-05-31_10-58-6-131756_leftImg8bit.jpg',
+        'rearNear__BLR-2018-06-06_16-41-17_rearNear__0000330.jpg',
+        'sideLeft__BLR-2018-05-14_13-38-46_sideLeft__000264_r.jpg'
     ]
+    
+    img_dirs = [
+        'C3_detector_v1/C3_detector_v1/test_images',
+        '../C3_detector_v1/C3_detector_v1/test_images',
+        '../../C3_detector_v1/C3_detector_v1/test_images',
+        'c:/Users/prana/Downloads/sih/C3_detector_v1/C3_detector_v1/test_images'
+    ]
+    img_dir = next((d for d in img_dirs if os.path.isdir(d)), None)
+    assert img_dir is not None, "Cannot find test_images directory in candidate paths"
+    
+    test_files = [os.path.join(img_dir, n) for n in raw_names]
     
     export_dict = {}
     for f in test_files:

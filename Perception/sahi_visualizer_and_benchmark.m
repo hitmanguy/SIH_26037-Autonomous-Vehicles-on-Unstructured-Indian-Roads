@@ -38,8 +38,19 @@ sahi_labels = cellstr(data.sahi_labels);
 sahi_cls    = data.sahi_cls(:);
 is_new_sahi = logical(data.is_new_sahi(:));
 
-imgFile = fullfile('C3_detector_v1', 'C3_detector_v1', 'test_images', ...
-    'highquality_16k__BLR-2018-05-31_10-49-32__2018-05-31_10-58-6-131756_leftImg8bit.jpg');
+imgCandidates = {
+    fullfile('C3_detector_v1', 'C3_detector_v1', 'test_images', 'highquality_16k__BLR-2018-05-31_10-49-32__2018-05-31_10-58-6-131756_leftImg8bit.jpg'),
+    fullfile('..', 'C3_detector_v1', 'C3_detector_v1', 'test_images', 'highquality_16k__BLR-2018-05-31_10-49-32__2018-05-31_10-58-6-131756_leftImg8bit.jpg'),
+    fullfile('c:', 'Users', 'prana', 'Downloads', 'sih', 'C3_detector_v1', 'C3_detector_v1', 'test_images', 'highquality_16k__BLR-2018-05-31_10-49-32__2018-05-31_10-58-6-131756_leftImg8bit.jpg')
+};
+imgFile = '';
+for ic = 1:length(imgCandidates)
+    if isfile(imgCandidates{ic})
+        imgFile = imgCandidates{ic};
+        break;
+    end
+end
+assert(~isempty(imgFile), 'Cannot locate Bangalore test image');
 I = imread(imgFile);
 
 num_ff   = size(ff_boxes, 1);
