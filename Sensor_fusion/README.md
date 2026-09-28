@@ -263,6 +263,57 @@ Tracking performance was benchmarked across three high-entropy Indian highway ev
 
 ---
 
+### 7.5 Image-Level Slicing Engine (SAHI Dual-Band Slicer: `sahi_engine.py` & `sahi_visualizer_and_benchmark.m`)
+
+#### 7.5.1 The Resolution Degradation Bottleneck on 1080p Indian Road Cameras
+Standard deep learning vision detectors (e.g. YOLOv8) operate at a fixed input resolution of $640 \times 640\text{ px}$. When full $1920 \times 1080\text{ px}$ automotive camera feeds are resized directly to $640 \times 640$, visual resolution degrades by a factor of $3.0\times$ horizontally and $1.69\times$ vertically.
+
+Under typical Indian highway driving geometries:
+- A $1.5\text{ m}$ tall pedestrian or motorcycle at $100\text{ m}$ projects to an optical height of only $\approx 18\text{ pixels}$ on a 1080p sensor ($f_y \approx 1200\text{ px}$).
+- After standard downscaling to $640 \times 640$, this target shrinks to just **$5.0\text{ pixels}$ tall**, dropping below YOLO's effective anchor and feature stride receptive field ($s = 8\text{ px}$), making it undetectable until it reaches $< 45\text{ m}$.
+- This severely compromises downstream sensor fusion, denying the Kalman/IMM filter sufficient lead time to track oncoming high-speed vehicles.
+
+#### 7.5.2 Dual-Band Functional Slicing Architecture
+To overcome this bottleneck without sacrificing inference frame rate, the **SAHI Slicing Engine** (`sahi_engine.py`) implements the dual-band architecture defined in Team Epsilon's perception specification:
+
+1. **Far Horizon Band ($40\text{–}150\text{ m}$ Lookahead):**
+   - Extracts rows $y \in [400, 760\text{ px}]$ (the road horizon where distant vehicles, cattle, and pedestrians appear).
+   - Generates overlapping $640 \times 360\text{ px}$ tiles with $35\%$ horizontal overlap.
+   - Slices maintain the native $1:1$ optical pixel density ($18\text{ px}$ target height retained).
+   - Runs asynchronously at $5\text{ Hz}$ in the slow perception loop to seed object tracks early.
+2. **Pothole / Near Road Band ($15\text{–}30\text{ m}$ Lookahead):**
+   - Extracts rows $y \in [600, 1000\text{ px}]$ (the immediate drivable road surface).
+   - Directly feeds the negative obstacle / pothole segmentation pipeline.
+3. **Coordinate Remapping & Multiclass NMS:**
+   - Tile detections $[x_{\text{tile}}, y_{\text{tile}}, w_{\text{tile}}, h_{\text{tile}}]$ are remapped back to full-frame canvas coordinates:
+     $$x_{\text{canvas}} = x_{\text{tile}} + x_{\text{offset}}, \quad y_{\text{canvas}} = y_{\text{tile}} + y_{\text{offset}}$$
+   - A cross-scale multiclass Non-Maximum Suppression (NMS) pass merges full-frame context with high-resolution tile detections (IoU threshold $\gamma = 0.35$), eliminating duplicate boundaries.
+
+#### 7.5.3 Empirical Benchmark Across India Driving Dataset (IDD) Frames
+The SAHI engine was evaluated across 4 real camera angles from the India Driving Dataset (`C3_detector_v1/test_images/`):
+
+| Test Frame | Camera Viewpoint | Scene Context | Standard Full-Frame | C3 YOLOv8s + SAHI | New Distant Objects Discovered | Detection Gain |
+| :--- | :--- | :--- | :---: | :---: | :---: | :---: |
+| `highquality_16k` | Front Center (1080p) | Dense Urban Bangalore (Flyover, Crowded Lanes) | 38 | **59** | **+17** | **+55.3%** |
+| `frontNear` | Front Bumper | Village / Suburban Road (Open Horizon) | 5 | **9** | **+4** | **+80.0%** |
+| `rearNear` | Rear Wide | Highway Overtaking & Tailgaters | 7 | **20** | **+12** | **+185.7%** |
+| `sideLeft` | Side Flank | Lateral Blind-Spot & Pedestrians | 7 | **15** | **+7** | **+114.3%** |
+| **Total Across All Views** | — | — | **57** | **103** | **+40** | **+80.7% Overall Gain** |
+
+#### 7.5.4 Class-Wise Detection Breakdown (Dense Urban Bangalore)
+On the dense Bangalore arterial road frame (`highquality_16k`):
+- `person`: $3 \rightarrow 11$ (**$+8$ distant pedestrians detected**, +267% increase).
+- `autorickshaw`: $1 \rightarrow 6$ (**$+5$ distant auto-rickshaws detected**, +500% increase).
+- `motorcycle`: $16 \rightarrow 22$ (**$+6$ distant two-wheelers detected**, +37.5% increase).
+- `rider`: $8 \rightarrow 9$ (**$+1$ rider detected**).
+- `car`: $10 \rightarrow 11$ (**$+1$ distant car detected**).
+
+![SAHI Slicing Perception Benchmark](sahi_slicing_comparison.png)
+
+*Figure: (Top-Left) Standard Full-Frame YOLOv8s detection missing distant hazards (38 detections). (Top-Right) C3 YOLOv8s + SAHI Multi-Band Slicing with cyan markers pinpointing +17 newly discovered distant road users across Far and Near bands. (Bottom-Left) Class-wise detection gain breakdown in dense Bangalore traffic. (Bottom-Right) Mathematical resolution density curve proving the $3.0\times$ optical pixel density advantage for hazards at $40\text{–}150\text{ m}$.*
+
+---
+
 ## 8. Directory Structure & File Index
 
 ```
@@ -270,13 +321,16 @@ Sensor_fusion/
 ├── README.md                              # This comprehensive technical report
 ├── sih26037_sensor_fusion_report.md       # Full academic literature review & architecture report
 │
+├── sahi_engine.py                         # Standalone Python SAHI dual-band slicing engine (ONNX Runtime)
+├── sahi_visualizer_and_benchmark.m        # MATLAB visualizer & 4-panel SAHI benchmark generator
+├── c3_semantic_imm_tracker.m             # C3 IDD YOLOv8 + SAHI + Semantic IMM Benchmark
+├── c3_vision_radar_fusion_bridge.m       # 2D Bbox-to-3D projection & Radar BEV fusion bridge
 ├── topic4_sensor_fusion.m                # Primary interactive simulation with Bird's-Eye view
 ├── compare_kf_vs_imm.m                   # Automated 20-second comparative KF vs IMM benchmark
 ├── realistic_av_capture_benchmark.m      # Multi-rate AV capture benchmark (100Hz clock, 20Hz radar, 10Hz cam)
 ├── kalman_2d_demo.m                      # Educational 2D Kalman math demonstration
-├── c3_semantic_imm_tracker.m             # C3 IDD YOLOv8 + SAHI + Semantic IMM Benchmark
-├── c3_vision_radar_fusion_bridge.m       # 2D Bbox-to-3D projection & Radar BEV fusion bridge
 │
+├── sahi_slicing_comparison.png           # 4-panel SAHI comparison, class breakdown, and resolution curve
 ├── c3_semantic_imm_results.png           # 4-panel dashboard of semantic IMM tracking & SAHI seeding
 ├── c3_vision_radar_bev_fusion.png        # Dual-panel IDD camera image + Metric BEV fusion grid
 ├── topic4_simulation_result.png          # Bird's-eye view simulation snapshot
@@ -285,6 +339,8 @@ Sensor_fusion/
 ├── realistic_av_tracking_error_20s.png    # 3-panel multi-rate sensor timeline and tracking error plot
 ├── kalman_2d_results.png                 # 3-panel mathematical 2D Kalman results
 │
+├── sahi_detection_results.mat            # Full-frame and sliced detections for all 4 IDD test frames
+├── sahi_benchmark_summary.mat            # Numerical benchmark logs for SAHI visualizer
 ├── c3_idd_detections.mat                 # Real IDD detections from fine-tuned YOLOv8s
 ├── c3_semantic_imm_benchmark.mat         # Numerical benchmark logs for semantic IMM tracking
 ├── c3_vision_radar_fusion_results.mat    # Numerical fusion state & covariance matrices
@@ -295,21 +351,35 @@ Sensor_fusion/
 
 ---
 
-## 9. How to Run in MATLAB
+## 9. How to Run in MATLAB & Python
 
 ### Prerequisites
 - MATLAB R2022b or later (validated on MATLAB R2025b).
 - **Automated Driving Toolbox**
 - **Sensor Fusion and Tracking Toolbox**
 - **Computer Vision Toolbox**
+- Python 3.9+ with `onnxruntime`, `numpy`, `scipy`, `pillow` (for SAHI engine).
 
 ### Quick Start Commands
-Run directly in the MATLAB Command Window:
 
+#### 1. Run SAHI Slicing Engine (Python)
+```bash
+python sahi_engine.py
+```
+*Outputs `sahi_detection_results.mat` containing bounding boxes, labels, and coordinate mappings across test frames.*
+
+#### 2. Run SAHI Visualizer & Benchmark (MATLAB)
 ```matlab
 % Navigate to folder
 cd('Sensor_fusion');
 
+% Run SAHI visualizer and generate publication figure
+sahi_visualizer_and_benchmark
+```
+*Generates and saves `sahi_slicing_comparison.png` and `sahi_benchmark_summary.mat`.*
+
+#### 3. Run Sensor Fusion & Multi-Object Tracking Pipeline (MATLAB)
+```matlab
 % 1. Run C3 YOLOv8 2D-to-3D Projection & Radar BEV Metric Fusion Bridge
 c3_vision_radar_fusion_bridge
 
