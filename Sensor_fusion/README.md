@@ -172,37 +172,136 @@ IMM is mission-critical in real Indian traffic under three high-entropy scenario
 
 ---
 
-## 7. Directory Structure & File Index
+## 7. End-to-End Perception to Sensor Fusion Pipeline (C3 IDD YOLOv8 + SAHI + Semantic IMM)
+
+### 7.1 Perception-to-Fusion Architecture
+
+Following Team Epsilon's camera pipeline design, multi-rate camera streams feed directly into the sensor fusion tracking layer:
 
 ```
-Sensor_fusion/
-├── README.md                           # This comprehensive technical report
-├── sih26037_sensor_fusion_report.md    # Full academic literature review & architecture report
-│
-├── topic4_sensor_fusion.m             # Primary interactive simulation with Bird's-Eye view
-├── compare_kf_vs_imm.m                # Automated 20-second comparative KF vs IMM benchmark
-├── realistic_av_capture_benchmark.m   # Multi-rate AV capture benchmark (100Hz clock, 20Hz radar, 10Hz cam)
-├── kalman_2d_demo.m                   # Educational 2D Kalman math demonstration
-│
-├── topic4_simulation_result.png       # Bird's-eye view simulation snapshot
-├── topic4_tracking_error_20s.png      # 20-second tracking error plot from topic4_sensor_fusion.m
-├── kf_vs_imm_comparison_20s.png       # 20-second KF vs IMM comparison plot
-├── realistic_av_tracking_error_20s.png # 3-panel multi-rate sensor timeline and tracking error plot
-├── kalman_2d_results.png              # 3-panel mathematical 2D Kalman results
-│
-├── topic4_tracking_results_20s.mat    # Saved tracking data arrays from topic4_sensor_fusion.m
-├── kf_vs_imm_errors_20s.mat           # Saved error arrays from compare_kf_vs_imm.m
-└── realistic_av_tracking_errors_20s.mat# Saved error arrays from realistic_av_capture_benchmark.m
++---------------------------------------------------------------------------------------------------+
+|                                      CAMERA PERCEPTION PIPELINE                                   |
+|                                                                                                   |
+|  [4 Surround Cameras] ----> (1) YOLOv8s Detection (IDD Fine-Tuned, 15.6-30 Hz)                    |
+|                                  |---> Agent Bounding Boxes [u, v, w, h] + 12 Classes             |
+|                                  |     (Pinhole Ground Projection: 2D -> 3D Ego Coordinates)      |
+|                                                                                                   |
+|  [Front Main Camera]  ----> (2) SAHI Slicing (Slow Loop: 40-150m Far Band @ 5 Hz)                 |
+|                                  |---> Small / Distant Hazard Detections (Seeds Tracks Early!)    |
++---------------------------------------------------------------------------------------------------+
+                                   |
+                                   v  [3D Measurement Streams]
++---------------------------------------------------------------------------------------------------+
+|                             SEMANTIC-AWARE SENSOR FUSION & TRACKING                               |
+|                                                                                                   |
+|  [Front 77 GHz Radar]  (20 Hz, Range + Doppler Velocity, 12 deg Azimuth Jitter)                   |
+|  [Rear Radar]          (10 Hz, Blind-Spot & Overtaking Coverage)                                  |
+|                                  |                                                                |
+|                                  v                                                                |
+|  [Global Hungarian Association & Mahalanobis Distance Gating: d_M^2 <= gamma_gate]                |
+|                                  |                                                                |
+|                                  v                                                                |
+|             CLASS-CONDITIONED SEMANTIC IMM MOTION MODELS (12 IDD Classes)                         |
+|  +------------------------------+-------------------------------+------------------------------+  |
+|  | "autorickshaw" / "motorcycle"| "animal" (Cow / Stray Dog)    | "truck" / "bus"              |  |
+|  | Fast Agile Swerve IMM        | 3-Mode IMM (CV + Dart +       | Heavy Inertia Constant       |  |
+|  | Q_swerve = 28.0 m/s^2        | ZERO-VELOCITY FREEZE MODE)    | Velocity (Q = 0.15 m/s^2)    |  |
+|  +------------------------------+-------------------------------+------------------------------+  |
+|                                  |                                                                |
+|                                  v                                                                |
+|  Output: Unified 3D Dynamic World Model [x, vx, y, vy, z, vz]^T + 95% Covariance Ellipses          |
++---------------------------------------------------------------------------------------------------+
 ```
 
 ---
 
-## 8. How to Run in MATLAB
+### 7.2 Semantic Motion Model Configuration (12 IDD Classes)
+
+Unlike generic tracking systems that apply identical process noise $Q$ across all road users, the **C3 Semantic IMM Tracker** uses fine-tuned YOLOv8 classification labels to configure specialized kinematic filters:
+
+| C3 Class ID | IDD Object Label | Assigned Estimator Architecture | Process Noise ($Q$) | Operational Rationale |
+|:---:|:---|:---|:---:|:---|
+| **6** | `autorickshaw` | **2-Mode Swerve IMM** | $Q_1=0.4, Q_2=28.0\text{ m/s}^2$ | Agile lane changes and sudden lateral swerves. |
+| **9** | `animal` *(Cow, Dog)* | **3-Mode Freeze IMM** | $Q_{\text{walk}}=0.4, Q_{\text{dart}}=15, Q_{\text{stop}}=0.02$ | Eliminates forward tracking overshoot when animals freeze in the path. |
+| **4, 5** | `bus`, `truck` | **High-Inertia Constant Velocity** | $Q=0.15\text{ m/s}^2$ | Heavy momentum; rejects radar azimuth angular jitter. |
+| **7, 8** | `motorcycle`, `bicycle` | **2-Mode Agile IMM** | $Q_1=0.4, Q_2=20.0\text{ m/s}^2$ | Rapid filtering for narrow, high-frequency filtering. |
+| **1, 2** | `person`, `rider` | **Agile Low-Speed IMM** | $Q_1=0.3, Q_2=12.0\text{ m/s}^2$ | Tight gating for vulnerable pedestrians near road edges. |
+| **3, 12** | `car`, `vehicle fallback` | **Standard IMM** | $Q_1=0.5, Q_2=12.0\text{ m/s}^2$ | Balanced cruising and lane change dynamics. |
+
+---
+
+### 7.3 Real-World IDD 2D-to-3D Projection & Radar Metric Fusion (`c3_vision_radar_fusion_bridge.m`)
+
+The script [`c3_vision_radar_fusion_bridge.m`](c3_vision_radar_fusion_bridge.m) takes raw 1080p camera frames from the India Driving Dataset (IDD), detects agents using the C3 YOLOv8 model, projects 2D bounding boxes to 3D ego Cartesian coordinates via flat-ground pinhole inverse perspective mapping, and fuses them with 77 GHz front radar returns:
+
+$$Z = \frac{H_{\text{cam}} \cdot f_y}{v_{\text{bottom}} - c_y}, \quad X = \frac{(u_{\text{center}} - c_x) \cdot Z}{f_x}$$
+
+![C3 Vision Radar BEV Fusion](c3_vision_radar_bev_fusion.png)
+
+*Figure: (Left) Annotated IDD Bangalore road frame showing detected `autorickshaw`, `motorcycle`, `animal`, `person`, and `vehicle fallback` with 3D ground coordinates. (Right) Metric Bird's-Eye View (BEV) fusion grid displaying ego vehicle, FOV cones, raw radar Doppler reflections (blue diamonds), camera detections (green squares), and fused kinematic tracks with 95% covariance ellipses.*
+
+---
+
+### 7.4 Empirical Multi-Rate Benchmark Results (`c3_semantic_imm_tracker.m`)
+
+Tracking performance was benchmarked across three high-entropy Indian highway events:
+1. **Stray Cow Crossing & Sudden Freeze ($t = 4.0\text{ s}$)**
+2. **Auto-Rickshaw 3-Stage Aggressive Swerving ($t = 0\text{ to }18\text{ s}$)**
+3. **SAHI Far-Band Early Warning Seeding ($90\text{ m}$ Distant Hazard)**
+
+![C3 Semantic IMM Benchmark](c3_semantic_imm_results.png)
+
+#### Benchmark Performance Summary
+
+| Scenario / Metric | Standard Agnostic KF | Agnostic 2-Mode IMM | **Proposed C3 Semantic IMM** | Performance Gain |
+|:---|:---:|:---:|:---:|:---|
+| **Stray Cow Freeze Event (Mean Error)** | $0.575\text{ m}$ | $0.158\text{ m}$ | **$0.081\text{ m}$** | **$85.9\%$ error reduction** |
+| **Stray Cow Freeze (Peak Overshoot)** | $0.830\text{ m}$ | $0.419\text{ m}$ | **$0.423\text{ m}$** | **$49.1\%$ lower overshoot** |
+| **Auto-Rickshaw Swerve (Mean Error)** | $0.110\text{ m}$ | — | **$0.077\text{ m}$** | **$30.0\%$ lower tracking error** |
+| **Auto-Rickshaw Swerve (Peak Lag)** | $0.331\text{ m}$ | — | **$0.305\text{ m}$** | **$7.9\%$ lower peak swerve lag** |
+| **Far Hazard Detection ($90\text{ m}$ Truck)** | $t = 8.11\text{ s}$ ($45.0\text{ m}$) | — | **$t = 0.00\text{ s}$ ($90.0\text{ m}$)** | **$+8.11\text{ s}$ ($+45\text{ m}$) Early Lead!** |
+
+---
+
+## 8. Directory Structure & File Index
+
+```
+Sensor_fusion/
+├── README.md                              # This comprehensive technical report
+├── sih26037_sensor_fusion_report.md       # Full academic literature review & architecture report
+│
+├── topic4_sensor_fusion.m                # Primary interactive simulation with Bird's-Eye view
+├── compare_kf_vs_imm.m                   # Automated 20-second comparative KF vs IMM benchmark
+├── realistic_av_capture_benchmark.m      # Multi-rate AV capture benchmark (100Hz clock, 20Hz radar, 10Hz cam)
+├── kalman_2d_demo.m                      # Educational 2D Kalman math demonstration
+├── c3_semantic_imm_tracker.m             # C3 IDD YOLOv8 + SAHI + Semantic IMM Benchmark
+├── c3_vision_radar_fusion_bridge.m       # 2D Bbox-to-3D projection & Radar BEV fusion bridge
+│
+├── c3_semantic_imm_results.png           # 4-panel dashboard of semantic IMM tracking & SAHI seeding
+├── c3_vision_radar_bev_fusion.png        # Dual-panel IDD camera image + Metric BEV fusion grid
+├── topic4_simulation_result.png          # Bird's-eye view simulation snapshot
+├── topic4_tracking_error_20s.png         # 20-second tracking error plot from topic4_sensor_fusion.m
+├── kf_vs_imm_comparison_20s.png          # 20-second KF vs IMM comparison plot
+├── realistic_av_tracking_error_20s.png    # 3-panel multi-rate sensor timeline and tracking error plot
+├── kalman_2d_results.png                 # 3-panel mathematical 2D Kalman results
+│
+├── c3_idd_detections.mat                 # Real IDD detections from fine-tuned YOLOv8s
+├── c3_semantic_imm_benchmark.mat         # Numerical benchmark logs for semantic IMM tracking
+├── c3_vision_radar_fusion_results.mat    # Numerical fusion state & covariance matrices
+├── topic4_tracking_results_20s.mat       # Saved tracking data arrays from topic4_sensor_fusion.m
+├── kf_vs_imm_errors_20s.mat              # Saved error arrays from compare_kf_vs_imm.m
+└── realistic_av_tracking_errors_20s.mat   # Saved error arrays from realistic_av_capture_benchmark.m
+```
+
+---
+
+## 9. How to Run in MATLAB
 
 ### Prerequisites
 - MATLAB R2022b or later (validated on MATLAB R2025b).
 - **Automated Driving Toolbox**
 - **Sensor Fusion and Tracking Toolbox**
+- **Computer Vision Toolbox**
 
 ### Quick Start Commands
 Run directly in the MATLAB Command Window:
@@ -211,21 +310,20 @@ Run directly in the MATLAB Command Window:
 % Navigate to folder
 cd('Sensor_fusion');
 
-% 1. Run Main Interactive Simulation (Nominal Standard KF, 20s)
-useIMM = false; degradeSensors = false; useRealisticAVRates = false;
-topic4_sensor_fusion
+% 1. Run C3 YOLOv8 2D-to-3D Projection & Radar BEV Metric Fusion Bridge
+c3_vision_radar_fusion_bridge
 
-% 2. Run Main Simulation with IMM Filter & Degraded Sensors
-useIMM = true; degradeSensors = true; useRealisticAVRates = false;
-topic4_sensor_fusion
+% 2. Run C3 Multi-Class Semantic IMM + SAHI Seeding Benchmark
+c3_semantic_imm_tracker
 
 % 3. Run Realistic AV Multi-Rate Simulation (100 Hz Clock, 20 Hz Radar, 10 Hz Camera)
 useIMM = true; degradeSensors = false; useRealisticAVRates = true;
 topic4_sensor_fusion
 
-% 4. Run Dedicated Multi-Rate AV Benchmark (Generates realistic_av_tracking_error_20s.png)
+% 4. Run Dedicated Multi-Rate AV Benchmark
 realistic_av_capture_benchmark
 
 % 5. Run KF vs. IMM Comparative Benchmark
 compare_kf_vs_imm
 ```
+
