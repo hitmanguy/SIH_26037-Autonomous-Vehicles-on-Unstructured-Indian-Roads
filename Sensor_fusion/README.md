@@ -225,8 +225,8 @@ Unlike generic tracking systems that apply identical process noise $Q$ across al
 
 | C3 Class ID | IDD Object Label | Assigned Estimator Architecture | Process Noise ($Q$) | Operational Rationale |
 |:---:|:---|:---|:---:|:---|
-| **6** | `autorickshaw` | **2-Mode Swerve IMM** | $Q_1=0.4, Q_2=28.0\text{ m/s}^2$ | Agile lane changes and sudden lateral swerves. |
-| **9** | `animal` *(Cow, Dog)* | **3-Mode Freeze IMM** | $Q_{\text{walk}}=0.4, Q_{\text{dart}}=15, Q_{\text{stop}}=0.02$ | Eliminates forward tracking overshoot when animals freeze in the path. |
+| **6** | `autorickshaw` | **2-Mode Lateral-Swerve IMM** | $Q_1=\text{diag}(0.3, 0.1)$, $Q_2=\text{diag}(1.5, 28)$ (long, lat) | Agile lane changes and sudden lateral swerves. |
+| **9** | `animal` *(Cow, Dog)* | **3-Mode Freeze IMM** | $Q_{\text{walk}}=0.4, Q_{\text{dart}}=15$; Stop mode pins velocity to 0 | Eliminates forward tracking overshoot when animals freeze in the path. |
 | **4, 5** | `bus`, `truck` | **High-Inertia Constant Velocity** | $Q=0.15\text{ m/s}^2$ | Heavy momentum; rejects radar azimuth angular jitter. |
 | **7, 8** | `motorcycle`, `bicycle` | **2-Mode Agile IMM** | $Q_1=0.4, Q_2=20.0\text{ m/s}^2$ | Rapid filtering for narrow, high-frequency filtering. |
 | **1, 2** | `person`, `rider` | **Agile Low-Speed IMM** | $Q_1=0.3, Q_2=12.0\text{ m/s}^2$ | Tight gating for vulnerable pedestrians near road edges. |
@@ -248,10 +248,16 @@ $$Z = \frac{H_{\text{cam}} \cdot f_y}{v_{\text{bottom}} - c_y}, \quad X = \frac{
 
 ### 7.4 Empirical Multi-Rate Benchmark Results (`c3_semantic_imm_tracker.m`)
 
-Tracking performance was benchmarked across three high-entropy Indian highway events:
+Tracking performance was benchmarked across three high-entropy Indian highway events, over **50 seeded Monte Carlo runs** (mean $\pm$ std):
 1. **Stray Cow Crossing & Sudden Freeze ($t = 4.0\text{ s}$)**
 2. **Auto-Rickshaw 3-Stage Aggressive Swerving ($t = 0\text{ to }18\text{ s}$)**
-3. **SAHI Far-Band Early Warning Seeding ($90\text{ m}$ Distant Hazard)**
+3. **SAHI Far-Band Early Warning Seeding (1.6 m bicycle approaching from $190\text{ m}$)**
+
+Tracker design:
+- **World-frame tracking** (ego-motion compensated with odometry), so the animal Stop mode is a genuine zero-velocity model rather than a low-noise constant-velocity model.
+- **Event-driven filtering:** filters predict only to each sensor timestamp, so the IMM Markov transition matrix acts once per measurement interval (not every 10 ms simulation tick).
+- **Sequential fusion:** camera and radar measurements arriving at the same instant are both applied (previously radar was dropped whenever the camera fired).
+- **Computed seeding range:** track confirmation uses a pixel-height detection model ($p_{det} = 0.5$ at 12 px) with 3-of-5 M/N confirmation, instead of hard-coded 45 m / 90 m thresholds.
 
 ![C3 Semantic IMM Benchmark](c3_semantic_imm_results.png)
 
@@ -259,11 +265,16 @@ Tracking performance was benchmarked across three high-entropy Indian highway ev
 
 | Scenario / Metric | Standard Agnostic KF | Agnostic 2-Mode IMM | **Proposed C3 Semantic IMM** | Performance Gain |
 |:---|:---:|:---:|:---:|:---|
-| **Stray Cow Freeze Event (Mean Error)** | $0.575\text{ m}$ | $0.158\text{ m}$ | **$0.081\text{ m}$** | **$85.9\%$ error reduction** |
-| **Stray Cow Freeze (Peak Overshoot)** | $0.830\text{ m}$ | $0.419\text{ m}$ | **$0.423\text{ m}$** | **$49.1\%$ lower overshoot** |
-| **Auto-Rickshaw Swerve (Mean Error)** | $0.110\text{ m}$ | — | **$0.077\text{ m}$** | **$30.0\%$ lower tracking error** |
-| **Auto-Rickshaw Swerve (Peak Lag)** | $0.331\text{ m}$ | — | **$0.305\text{ m}$** | **$7.9\%$ lower peak swerve lag** |
-| **Far Hazard Detection ($90\text{ m}$ Truck)** | $t = 8.11\text{ s}$ ($45.0\text{ m}$) | — | **$t = 0.00\text{ s}$ ($90.0\text{ m}$)** | **$+8.11\text{ s}$ ($+45\text{ m}$) Early Lead!** |
+| **Stray Cow Freeze Event (Mean Error, 3.8–5.5 s)** | $0.281 \pm 0.035\text{ m}$ | $0.171 \pm 0.025\text{ m}$ | **$0.050 \pm 0.021\text{ m}$** | **$70.6\%$ lower than agnostic IMM** |
+| **Stray Cow Freeze (Peak Error)** | $0.444 \pm 0.045\text{ m}$ | $0.402 \pm 0.037\text{ m}$ | **$0.402 \pm 0.037\text{ m}$** | Same as IMM (peak is set by the instantaneous stop, before any sensor sees it) |
+| **Auto-Rickshaw Swerve (Mean Error)** | $0.082 \pm 0.015\text{ m}$ | $0.082 \pm 0.015\text{ m}$ | **$0.081 \pm 0.015\text{ m}$** | No significant difference (see note) |
+| **Auto-Rickshaw Swerve (Peak Error)** | $0.212 \pm 0.060\text{ m}$ | $0.213 \pm 0.060\text{ m}$ | **$0.213 \pm 0.058\text{ m}$** | No significant difference (see note) |
+| **Far Hazard Track Confirmation (1.6 m bicycle)** | Full-frame: $t = 15.1\text{ s}$ ($64 \pm 9\text{ m}$) | — | **SAHI: $t = 1.9\text{ s}$ ($174 \pm 12\text{ m}$)** | **$+13.2\text{ s}$ ($+110\text{ m}$) earlier** |
+
+> [!NOTE]
+> **Rickshaw scenario:** the swerves peak at only ~1.8 m/s² lateral acceleration, and the simulated radar measures lateral velocity directly (σ = 0.25 m/s), so a single CV filter already tracks them and no maneuver model can help. An earlier version of this benchmark showed an IMM advantage that came from a simulation bug (the very first measurement reported zero velocity). A realistic radar measures only *radial* velocity; modelling that, or sharper ~1 s lane cuts, is needed for this scenario to discriminate between filters.
+>
+> **SAHI seeding** ranges depend on the assumed detection curve ($p_{det} = 0.5$ at 12 px) and should be re-calibrated against real IDD detections at known ranges.
 
 ---
 
@@ -271,8 +282,8 @@ Tracking performance was benchmarked across three high-entropy Indian highway ev
 
 The Sensor Fusion tracking pipeline integrates detections from the **Perception Module** (see [`Perception/`](../Perception/README.md)):
 - **Near Field (0–40m):** Real-time full-frame YOLOv8s (15.6–30 Hz) provides immediate 2D bounding boxes for proximate actors.
-- **Far Horizon (40–150m):** The SAHI Dual-Band Slicing Engine (`Perception/sahi_engine.py`) recovers small, distant road users with **+80.7% higher detection recall** (+55.3% in dense Bangalore traffic).
-- **Track Seeding Lead:** When a distant obstacle (e.g. stalled truck at 90m) appears, SAHI detects it at `t = 0.00 s` (`Z = 90.0 m`), whereas standard full-frame YOLO misses it until `t = 8.11 s` (`Z = 45.0 m`). This delivers an **+8.11 s (+45 m) early lead time**, enabling the Semantic IMM filter to establish a confirmed kinematic track and converge its covariance before the vehicle enters the critical braking envelope.
+- **Far Horizon (40–150m):** The SAHI Dual-Band Slicing Engine (`Perception/sahi_engine.py`) finds **+23 objects with no full-frame match across the 4 IDD test views** (+36% over the 64 full-frame detections).
+- **Track Seeding Lead:** A 1.6 m bicycle approaching from 190 m is confirmed (3-of-5) by SAHI at ~174 m, versus ~64 m for full-frame YOLO: an **+13.2 s (+110 m) earlier track**, letting the Semantic IMM converge its covariance before the vehicle enters the braking envelope.
 
 > [!NOTE]
 > For the standalone SAHI slicing code, ONNX inference scripts, multi-view IDD detection benchmarks, and visual comparison dashboards, refer directly to the **[Perception Module Documentation](../Perception/README.md)**.
