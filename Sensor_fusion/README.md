@@ -40,35 +40,66 @@ In production autonomous vehicles, sensors do not sample simultaneously:
 ## 3. Tracking Algorithms
 
 ### 3.1 State Representation & Measurement Model
-Each confirmed object track maintains a 6D kinematic state vector in ego Cartesian coordinates:
-$$\mathbf{x} = \begin{bmatrix} x & v_x & y & v_y & z & v_z \end{bmatrix}^T$$
 
-Measurements $\mathbf{z} = \begin{bmatrix} x_m & y_m & z_m & v_{xm} & v_{ym} & v_{zm} \end{bmatrix}^T$ are mapped through measurement matrix $H$:
-$$H = \begin{bmatrix} 
-1 & 0 & 0 & 0 & 0 & 0 \\ 
-0 & 0 & 1 & 0 & 0 & 0 \\ 
-0 & 0 & 0 & 0 & 1 & 0 \\ 
-0 & 1 & 0 & 0 & 0 & 0 \\ 
-0 & 0 & 0 & 1 & 0 & 0 \\ 
-0 & 0 & 0 & 0 & 0 & 1 
-\end{bmatrix}, \quad \mathbf{z} = H \mathbf{x} + \mathbf{v}, \quad \mathbf{v} \sim \mathcal{N}(0, R)$$
+Each confirmed object track maintains a 6D kinematic state vector in ego Cartesian coordinates:
+
+$$
+\mathbf{x} = \begin{bmatrix} x & v_x & y & v_y & z & v_z \end{bmatrix}^T
+$$
+
+Measurements $\mathbf{z} = \begin{bmatrix} x_m & y_m & z_m & v_{xm} & v_{ym} & v_{zm} \end{bmatrix}^T$ are mapped to the state vector via measurement matrix $H$:
+
+$$
+\mathbf{z} = H \mathbf{x} + \mathbf{v}, \quad \mathbf{v} \sim \mathcal{N}(\mathbf{0}, R)
+$$
+
+The $6 \times 6$ measurement matrix $H$ maps state coordinates $[x, v_x, y, v_y, z, v_z]^T$ to sensor measurement channels $[x_m, y_m, z_m, v_{xm}, v_{ym}, v_{zm}]^T$:
+
+```matlab
+% Measurement matrix H (mapping 6D state to 6D sensor measurements):
+H = [ 1  0  0  0  0  0;   % x_m  <- x
+      0  0  1  0  0  0;   % y_m  <- y
+      0  0  0  0  1  0;   % z_m  <- z
+      0  1  0  0  0  0;   % vx_m <- vx
+      0  0  0  1  0  0;   % vy_m <- vy
+      0  0  0  0  0  1 ]; % vz_m <- vz
+```
+
+In matrix notation:
+
+$$
+H = \begin{bmatrix}
+1 & 0 & 0 & 0 & 0 & 0 \\
+0 & 0 & 1 & 0 & 0 & 0 \\
+0 & 0 & 0 & 0 & 1 & 0 \\
+0 & 1 & 0 & 0 & 0 & 0 \\
+0 & 0 & 0 & 1 & 0 & 0 \\
+0 & 0 & 0 & 0 & 0 & 1
+\end{bmatrix}
+$$
 
 ### 3.2 Standard Constant Velocity Kalman Filter (KF)
+
 - **Assumption:** Dynamic actors maintain constant velocity with small random accelerations.
 - **Process Noise:** $Q = 0.5 \cdot I_3$ ($\text{m/s}^2$).
 - **Characteristics:** Acts as a smooth noise filter, cleanly rejecting radar azimuth jitter during steady cruising.
 
 ### 3.3 Interacting Multiple Model (IMM) Filter
+
 - **Hypothesis:** Target motion switches probabilistically between distinct behavioral modes.
   - **Model 1 (Lane Cruising):** Low acceleration noise $Q_1 = 0.5 \cdot I_3$ ($\text{m/s}^2$).
   - **Model 2 (Aggressive Swerve / Maneuver):** High acceleration noise $Q_2 = 25.0 \cdot I_3$ ($\text{m/s}^2$).
-  - **Markov Transition Matrix:**
-    $$\Pi = \begin{bmatrix} 0.95 & 0.05 \\ 0.10 & 0.90 \end{bmatrix}$$
+  - **Markov Transition Matrix:** $\Pi = \begin{bmatrix} 0.95 & 0.05 \\ 0.10 & 0.90 \end{bmatrix}$
 - **Characteristics:** Dynamically shifts mode probability $\mu_j$ based on measurement innovation likelihood, preventing filter lag during sudden, sharp directional changes.
 
 ### 3.4 Data Association: Global Nearest Neighbor (GNN)
+
 Track-to-measurement association is solved globally via Hungarian / Munkres optimization using normalized **Mahalanobis distance gating**:
-$$d_M^2 = (\mathbf{z} - H\hat{\mathbf{x}})^T S^{-1} (\mathbf{z} - H\hat{\mathbf{x}}) \le \gamma_{\text{gate}}$$
+
+$$
+d_M^2 = (\mathbf{z} - H\hat{\mathbf{x}})^T S^{-1} (\mathbf{z} - H\hat{\mathbf{x}}) \le \gamma_{\text{gate}}
+$$
+
 - Confirmation threshold: $[2 \ 3]$ (2 detections within 3 frames).
 - Deletion threshold: $[5 \ 5]$ (5 consecutive missed frames drops track).
 
