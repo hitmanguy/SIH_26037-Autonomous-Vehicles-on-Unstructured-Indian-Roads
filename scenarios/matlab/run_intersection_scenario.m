@@ -124,6 +124,21 @@ function scenario = run_intersection_scenario(varargin)
                 case {'POTHOLE', 'INDIAN_POTHOLE', 'DETOUR', 'INDIAN_POTHOLE_DETOUR', 'PINCH', 'INDIAN6'}
                     xoscFile = fullfile(indianDir, 'Indian_Pothole_Detour.xosc');
                     xodrFile = fullfile(mapsDir, 'Indian_Urban_Arterial.xodr');
+                case {'INDIAN_WRONGWAY', 'WRONGWAY', 'HEADON', 'TEMPO', 'INDIAN7'}
+                    xoscFile = fullfile(indianDir, 'Indian_WrongWay_Encounter.xosc');
+                    xodrFile = fullfile(mapsDir, 'Indian_Urban_Arterial.xodr');
+                case {'INDIAN_SCHOOLZONE', 'SCHOOLZONE', 'SCHOOL', 'CHILDREN', 'INDIAN8'}
+                    xoscFile = fullfile(indianDir, 'Indian_SchoolZone_Rush.xosc');
+                    xodrFile = fullfile(mapsDir, 'Indian_Urban_Arterial.xodr');
+                case {'INDIAN_BUSSTOP', 'BUSSTOP', 'BUS_STOP', 'ALIGHT', 'PASSENGER', 'INDIAN9'}
+                    xoscFile = fullfile(indianDir, 'Indian_BusStop_Hazard.xosc');
+                    xodrFile = fullfile(mapsDir, 'Indian_Urban_Arterial.xodr');
+                case {'INDIAN_VENDORCART', 'VENDORCART', 'VENDOR', 'HANDCART', 'CART', 'SWERVE', 'INDIAN10'}
+                    xoscFile = fullfile(indianDir, 'Indian_VendorCart_Swerve.xosc');
+                    xodrFile = fullfile(mapsDir, 'Indian_Urban_Arterial.xodr');
+                case {'INDIAN_GAUNTLET', 'GAUNTLET', 'MULTITHREAT', 'MULTI_THREAT', 'BOSS', 'INDIAN11'}
+                    xoscFile = fullfile(indianDir, 'Indian_MultiThreat_Gauntlet.xosc');
+                    xodrFile = fullfile(mapsDir, 'Indian_Urban_Arterial.xodr');
 
                 % --- Real Indian OpenStreetMap Roads ---
                 case {'BANGALORE', 'INDIRANAGAR', 'BANGALORE_ROAD'}
@@ -311,6 +326,9 @@ function scenario = run_intersection_scenario(varargin)
                 
                 dSpd = [0; diff(appLogSpd)];
                 keepMask(abs(dSpd) > 0.15) = true;
+                % Keep lateral inflection points (lane changes, evasions, detours)
+                dLat = [0; diff(appLogPos(:, 2))];
+                keepMask(abs(dLat) > 0.04) = true;
                 
                 keyWps = appLogPos(keepMask, :);
                 keySpds = appLogSpd(keepMask);
@@ -336,14 +354,40 @@ function scenario = run_intersection_scenario(varargin)
             end
         end
         
-        % Save MAT scenario session file for direct access and reloading
+        % Ensure 100% compatibility with Driving Scenario Designer:
+        % 1. MATLAB drivingScenarioDesigner strictly enforces that any object instantiated as a Vehicle
+        %    must have ClassID 1 (Car) or 2 (Truck). If any vehicle has a non-conforming ClassID, normalize it.
+        % 2. Any Actor with a trajectory CANNOT have ClassID 5 (Barrier/Immovable in DSD Class Editor).
+        %    Normalize moving actors with ClassID 5 to ClassID 4 (Pedestrian/VRU/Movable).
+        for actIdx = 1:length(scenario.Actors)
+            curAct = scenario.Actors(actIdx);
+            if isa(curAct, 'driving.scenario.Vehicle')
+                if curAct.ClassID ~= 1 && curAct.ClassID ~= 2
+                    curAct.ClassID = 1;
+                end
+            else
+                % Generic actors: check if a trajectory is defined
+                hasTraj = false;
+                try
+                    if isprop(curAct, 'Waypoints') && ~isempty(curAct.Waypoints) && size(curAct.Waypoints, 1) >= 2
+                        hasTraj = true;
+                    end
+                catch
+                end
+                if (hasTraj || norm(curAct.Velocity) > 0.01) && curAct.ClassID == 5
+                    curAct.ClassID = 4; % Reclassify as movable VRU/Pedestrian in DSD
+                end
+            end
+        end
+
+        % Save MAT scenario session file for direct access and reloading AFTER normalization
         matScenarioFile = '';
         if ~isScenicFuzz
             matScenarioFile = fullfile(rootDir, sprintf('%s_Scenario.mat', info.ScenarioType));
             save(matScenarioFile, 'scenario');
             fprintf('[APP] Scenario saved to session file: %s\n', matScenarioFile);
         end
-        
+
         % Launch Driving Scenario Designer app
         drivingScenarioDesigner(scenario);
         fprintf('[APP] Driving Scenario Designer launched successfully with [%s]!\n', info.ScenarioType);
@@ -849,8 +893,8 @@ function dense = interpolate_ref_path(pts, ds)
         return;
     end
     sQuery = (0:ds:totalLen)';
-    xDense = interp1(sCum, pts(:, 1), sQuery, 'spline');
-    yDense = interp1(sCum, pts(:, 2), sQuery, 'spline');
+    xDense = interp1(sCum, pts(:, 1), sQuery, 'pchip');
+    yDense = interp1(sCum, pts(:, 2), sQuery, 'pchip');
     dense = [xDense, yDense];
 end
 

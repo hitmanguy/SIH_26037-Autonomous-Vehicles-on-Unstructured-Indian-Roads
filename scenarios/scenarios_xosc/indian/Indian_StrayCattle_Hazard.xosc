@@ -1,19 +1,53 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <OpenSCENARIO>
-  <FileHeader revMajor="1" revMinor="1" date="2026-09-29T00:00:00" description="Stationary Cattle / Obstacle in Lane with Oncoming Traffic" author="SIH26 Autonomous Driving Team"/>
+  <FileHeader revMajor="1" revMinor="1" date="2026-09-30T00:00:00" description="Multiple Stray Cattle Wandering in Lane with Oncoming Traffic and Shoulder Pedestrians" author="SIH26 Autonomous Driving Team"/>
+  <ParameterDeclarations>
+    <ParameterDeclaration name="Ego_Speed" parameterType="double" value="6.94"/>  <!-- 25 km/h -->
+    <ParameterDeclaration name="Cow1_Speed" parameterType="double" value="0.8"/>  <!-- Slow wandering -->
+    <ParameterDeclaration name="Cow2_Speed" parameterType="double" value="0.0"/>  <!-- Stationary cow -->
+  </ParameterDeclarations>
+  <CatalogLocations>
+    <VehicleCatalog><Directory path="../catalogs/vehicles"/></VehicleCatalog>
+  </CatalogLocations>
   <RoadNetwork>
     <LogicFile filepath="../../maps_xodr/Indian_Urban_Arterial.xodr"/>
   </RoadNetwork>
   <Entities>
     <ScenarioObject name="Ego">
-      <Vehicle name="EgoCar" vehicleCategory="car"><Dimensions width="1.80" length="4.50" height="1.50"/></Vehicle>
+      <Vehicle name="EgoCar" vehicleCategory="car">
+        <Dimensions width="1.80" length="4.50" height="1.48"/>
+        <Performance maxSpeed="55.5" maxAcceleration="6.0" maxDeceleration="9.0"/>
+        <BoundingBox><Center x="1.4" y="0.0" z="0.7"/><Dimension width="1.80" length="4.50" height="1.48"/></BoundingBox>
+        <Axles><FrontAxle maxSteering="0.5" wheelDiameter="0.6" trackWidth="1.55" positionX="2.8" positionZ="0.3"/>
+               <RearAxle maxSteering="0.0" wheelDiameter="0.6" trackWidth="1.55" positionX="0.0" positionZ="0.3"/></Axles>
+      </Vehicle>
     </ScenarioObject>
     <ScenarioObject name="StrayCattle">
-      <!-- Modeled as barrier/cuboid object in roadway -->
-      <MiscObject name="Cow_Obstacle" miscObjectCategory="obstacle" mass="400.0"><Dimensions width="1.10" length="2.10" height="1.40"/></MiscObject>
+      <MiscObject name="Cow_Wandering" miscObjectCategory="obstacle" mass="400.0">
+        <Dimensions width="1.10" length="2.10" height="1.40"/>
+        <BoundingBox><Center x="1.05" y="0.0" z="0.7"/><Dimension width="1.10" length="2.10" height="1.40"/></BoundingBox>
+      </MiscObject>
+    </ScenarioObject>
+    <ScenarioObject name="StrayCattle2">
+      <MiscObject name="Cow_Stationary" miscObjectCategory="obstacle" mass="350.0">
+        <Dimensions width="1.00" length="1.90" height="1.30"/>
+        <BoundingBox><Center x="0.95" y="0.0" z="0.65"/><Dimension width="1.00" length="1.90" height="1.30"/></BoundingBox>
+      </MiscObject>
     </ScenarioObject>
     <ScenarioObject name="OncomingVehicle">
-      <Vehicle name="OncomingBus" vehicleCategory="bus"><Dimensions width="2.50" length="10.50" height="3.20"/></Vehicle>
+      <Vehicle name="OncomingBus" vehicleCategory="bus">
+        <Dimensions width="2.50" length="10.50" height="3.20"/>
+        <Performance maxSpeed="25.0" maxAcceleration="2.0" maxDeceleration="5.0"/>
+        <BoundingBox><Center x="3.5" y="0.0" z="1.6"/><Dimension width="2.50" length="10.50" height="3.20"/></BoundingBox>
+        <Axles><FrontAxle maxSteering="0.4" wheelDiameter="1.0" trackWidth="2.0" positionX="7.0" positionZ="0.5"/>
+               <RearAxle maxSteering="0.0" wheelDiameter="1.0" trackWidth="2.0" positionX="0.0" positionZ="0.5"/></Axles>
+      </Vehicle>
+    </ScenarioObject>
+    <ScenarioObject name="ShoulderPedestrian">
+      <Pedestrian name="Pedestrian_Walking" pedestrianCategory="pedestrian" mass="65.0">
+        <Dimensions width="0.45" length="0.28" height="1.70"/>
+        <BoundingBox><Center x="0.0" y="0.0" z="0.85"/><Dimension width="0.45" length="0.28" height="1.70"/></BoundingBox>
+      </Pedestrian>
     </ScenarioObject>
   </Entities>
   <Storyboard>
@@ -21,19 +55,47 @@
       <Actions>
         <Private entityRef="Ego">
           <PrivateAction><TeleportAction><Position><WorldPosition x="20.0" y="-1.75" z="0.0" h="0.0"/></Position></TeleportAction></PrivateAction>
-          <PrivateAction><LongitudinalAction><SpeedAction><SpeedActionDynamics dynamicsShape="step" value="0.0" dynamicsDimension="time"/><SpeedActionTarget><AbsoluteTargetSpeed value="11.11"/></SpeedActionTarget></SpeedAction></LongitudinalAction></PrivateAction>
+          <PrivateAction><LongitudinalAction><SpeedAction><SpeedActionDynamics dynamicsShape="step" value="0.0" dynamicsDimension="time"/><SpeedActionTarget><AbsoluteTargetSpeed value="$Ego_Speed"/></SpeedActionTarget></SpeedAction></LongitudinalAction></PrivateAction>
         </Private>
         <Private entityRef="StrayCattle">
           <PrivateAction><TeleportAction><Position><WorldPosition x="100.0" y="-1.75" z="0.0" h="0.0"/></Position></TeleportAction></PrivateAction>
-          <PrivateAction><LongitudinalAction><SpeedAction><SpeedActionDynamics dynamicsShape="step" value="0.0" dynamicsDimension="time"/><SpeedActionTarget><AbsoluteTargetSpeed value="0.0"/></SpeedActionTarget></SpeedAction></LongitudinalAction></PrivateAction>
+          <PrivateAction><LongitudinalAction><SpeedAction><SpeedActionDynamics dynamicsShape="step" value="0.0" dynamicsDimension="time"/><SpeedActionTarget><AbsoluteTargetSpeed value="$Cow1_Speed"/></SpeedActionTarget></SpeedAction></LongitudinalAction></PrivateAction>
+        </Private>
+        <Private entityRef="StrayCattle2">
+          <PrivateAction><TeleportAction><Position><WorldPosition x="108.0" y="-3.50" z="0.0" h="0.0"/></Position></TeleportAction></PrivateAction>
+          <PrivateAction><LongitudinalAction><SpeedAction><SpeedActionDynamics dynamicsShape="step" value="0.0" dynamicsDimension="time"/><SpeedActionTarget><AbsoluteTargetSpeed value="$Cow2_Speed"/></SpeedActionTarget></SpeedAction></LongitudinalAction></PrivateAction>
         </Private>
         <Private entityRef="OncomingVehicle">
           <PrivateAction><TeleportAction><Position><WorldPosition x="250.0" y="1.75" z="0.0" h="3.14159"/></Position></TeleportAction></PrivateAction>
           <PrivateAction><LongitudinalAction><SpeedAction><SpeedActionDynamics dynamicsShape="step" value="0.0" dynamicsDimension="time"/><SpeedActionTarget><AbsoluteTargetSpeed value="9.72"/></SpeedActionTarget></SpeedAction></LongitudinalAction></PrivateAction>
         </Private>
+        <Private entityRef="ShoulderPedestrian">
+          <PrivateAction><TeleportAction><Position><WorldPosition x="95.0" y="-6.50" z="0.0" h="0.0"/></Position></TeleportAction></PrivateAction>
+          <PrivateAction><LongitudinalAction><SpeedAction><SpeedActionDynamics dynamicsShape="step" value="0.0" dynamicsDimension="time"/><SpeedActionTarget><AbsoluteTargetSpeed value="1.0"/></SpeedActionTarget></SpeedAction></LongitudinalAction></PrivateAction>
+        </Private>
       </Actions>
     </Init>
-    <Story name="CattleStory"><Act name="CattleAct"><ManeuverGroup maximumExecutionCount="1" name="MG_Hold"><Actors selectTriggeringEntities="false"><EntityRef entityRef="StrayCattle"/></Actors><Maneuver name="M_Static"><Event name="HoldEvent" priority="overwrite"><Action name="HoldStill"><PrivateAction><LongitudinalAction><SpeedAction><SpeedActionDynamics dynamicsShape="step" value="0.0" dynamicsDimension="time"/><SpeedActionTarget><AbsoluteTargetSpeed value="0.0"/></SpeedActionTarget></SpeedAction></LongitudinalAction></PrivateAction></Action><StartTrigger><ConditionGroup><Condition name="StartImmediate" delay="0" conditionEdge="none"><ByValueCondition><SimulationTimeCondition value="0.0" rule="greaterThan"/></ByValueCondition></Condition></ConditionGroup></StartTrigger></Event></Maneuver></ManeuverGroup></Act></Story>
+    <Story name="CattleStory">
+      <Act name="CattleAct">
+        <ManeuverGroup maximumExecutionCount="1" name="MG_Hold">
+          <Actors selectTriggeringEntities="false"><EntityRef entityRef="StrayCattle"/></Actors>
+          <Maneuver name="M_Wander">
+            <Event name="WanderEvent" priority="overwrite">
+              <Action name="CowWander">
+                <PrivateAction><LongitudinalAction><SpeedAction><SpeedActionDynamics dynamicsShape="linear" value="2.0" dynamicsDimension="time"/><SpeedActionTarget><AbsoluteTargetSpeed value="$Cow1_Speed"/></SpeedActionTarget></SpeedAction></LongitudinalAction></PrivateAction>
+              </Action>
+              <StartTrigger>
+                <ConditionGroup>
+                  <Condition name="StartImmediate" delay="0" conditionEdge="none">
+                    <ByValueCondition><SimulationTimeCondition value="0.0" rule="greaterThan"/></ByValueCondition>
+                  </Condition>
+                </ConditionGroup>
+              </StartTrigger>
+            </Event>
+          </Maneuver>
+        </ManeuverGroup>
+      </Act>
+    </Story>
     <StopTrigger/>
   </Storyboard>
 </OpenSCENARIO>

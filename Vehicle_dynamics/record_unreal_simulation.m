@@ -111,6 +111,21 @@ function [videoPath, scenario, runDir] = record_unreal_simulation(varargin)
             case {'INDIAN_CATTLE', 'CATTLE', 'COW', 'HAZARD', 'INDIAN4'}
                 xoscFile = fullfile(indianDir, 'Indian_StrayCattle_Hazard.xosc');
                 xodrFile = fullfile(mapsDir, 'Indian_Urban_Arterial.xodr');
+            case {'INDIAN_WRONGWAY', 'WRONGWAY', 'HEADON', 'TEMPO', 'INDIAN7'}
+                xoscFile = fullfile(indianDir, 'Indian_WrongWay_Encounter.xosc');
+                xodrFile = fullfile(mapsDir, 'Indian_Urban_Arterial.xodr');
+            case {'INDIAN_SCHOOLZONE', 'SCHOOLZONE', 'SCHOOL', 'CHILDREN', 'INDIAN8'}
+                xoscFile = fullfile(indianDir, 'Indian_SchoolZone_Rush.xosc');
+                xodrFile = fullfile(mapsDir, 'Indian_Urban_Arterial.xodr');
+            case {'INDIAN_BUSSTOP', 'BUSSTOP', 'BUS_STOP', 'ALIGHT', 'PASSENGER', 'INDIAN9'}
+                xoscFile = fullfile(indianDir, 'Indian_BusStop_Hazard.xosc');
+                xodrFile = fullfile(mapsDir, 'Indian_Urban_Arterial.xodr');
+            case {'INDIAN_VENDORCART', 'VENDORCART', 'VENDOR', 'HANDCART', 'CART', 'SWERVE', 'INDIAN10'}
+                xoscFile = fullfile(indianDir, 'Indian_VendorCart_Swerve.xosc');
+                xodrFile = fullfile(mapsDir, 'Indian_Urban_Arterial.xodr');
+            case {'INDIAN_GAUNTLET', 'GAUNTLET', 'MULTITHREAT', 'MULTI_THREAT', 'BOSS', 'INDIAN11'}
+                xoscFile = fullfile(indianDir, 'Indian_MultiThreat_Gauntlet.xosc');
+                xodrFile = fullfile(mapsDir, 'Indian_Urban_Arterial.xodr');
 
             % --- ASAM OpenSCENARIO Standard Examples ---
             case {'LANECHANGE', 'LANECHANGESIMPLE'}
@@ -162,6 +177,21 @@ function [videoPath, scenario, runDir] = record_unreal_simulation(varargin)
                     xodrFile = fullfile(mapsDir, 'Indian_Urban_Arterial.xodr');
                 elseif contains(scUpper, 'CATTLE') || contains(scUpper, 'COW')
                     xoscFile = fullfile(indianDir, 'Indian_StrayCattle_Hazard.xosc');
+                    xodrFile = fullfile(mapsDir, 'Indian_Urban_Arterial.xodr');
+                elseif contains(scUpper, 'WRONG') || contains(scUpper, 'HEADON') || contains(scUpper, 'TEMPO')
+                    xoscFile = fullfile(indianDir, 'Indian_WrongWay_Encounter.xosc');
+                    xodrFile = fullfile(mapsDir, 'Indian_Urban_Arterial.xodr');
+                elseif contains(scUpper, 'SCHOOL') || contains(scUpper, 'CHILD')
+                    xoscFile = fullfile(indianDir, 'Indian_SchoolZone_Rush.xosc');
+                    xodrFile = fullfile(mapsDir, 'Indian_Urban_Arterial.xodr');
+                elseif contains(scUpper, 'BUS') || contains(scUpper, 'ALIGHT') || contains(scUpper, 'PASSENGER')
+                    xoscFile = fullfile(indianDir, 'Indian_BusStop_Hazard.xosc');
+                    xodrFile = fullfile(mapsDir, 'Indian_Urban_Arterial.xodr');
+                elseif contains(scUpper, 'VENDOR') || contains(scUpper, 'CART') || contains(scUpper, 'SWERVE')
+                    xoscFile = fullfile(indianDir, 'Indian_VendorCart_Swerve.xosc');
+                    xodrFile = fullfile(mapsDir, 'Indian_Urban_Arterial.xodr');
+                elseif contains(scUpper, 'GAUNTLET') || contains(scUpper, 'THREAT') || contains(scUpper, 'BOSS')
+                    xoscFile = fullfile(indianDir, 'Indian_MultiThreat_Gauntlet.xosc');
                     xodrFile = fullfile(mapsDir, 'Indian_Urban_Arterial.xodr');
                 else
                     % Safe default
@@ -288,6 +318,9 @@ function [videoPath, scenario, runDir] = record_unreal_simulation(varargin)
     % Keep speed inflection points (braking / acceleration transitions)
     dSpd = [0; diff(allSpd)];
     keepMask(abs(dSpd) > 0.10) = true;
+    % Keep lateral inflection points (lane changes, evasions, detours)
+    dLat = [0; diff(allPos(:, 2))];
+    keepMask(abs(dLat) > 0.04) = true;
 
     keyWps  = allPos(keepMask, :);
     keySpds = allSpd(keepMask);

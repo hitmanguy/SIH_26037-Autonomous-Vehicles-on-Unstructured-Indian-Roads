@@ -502,6 +502,16 @@ function scType = detect_scenario_type(xoscFile, desc, params)
         scType = 'INDIAN_CONGESTION';
     elseif contains(fUpper, 'POTHOLE') || contains(dUpper, 'POTHOLE')
         scType = 'INDIAN_POTHOLE';
+    elseif contains(fUpper, 'WRONGWAY') || contains(dUpper, 'WRONG-WAY') || contains(dUpper, 'HEAD-ON')
+        scType = 'INDIAN_WRONGWAY';
+    elseif contains(fUpper, 'SCHOOLZONE') || contains(dUpper, 'SCHOOL ZONE') || contains(dUpper, 'CHILDREN CROSSING')
+        scType = 'INDIAN_SCHOOLZONE';
+    elseif contains(fUpper, 'BUSSTOP') || contains(dUpper, 'BUS STOP') || contains(dUpper, 'ALIGHTING')
+        scType = 'INDIAN_BUSSTOP';
+    elseif contains(fUpper, 'VENDORCART') || contains(dUpper, 'VENDOR') || contains(dUpper, 'HANDCART')
+        scType = 'INDIAN_VENDORCART';
+    elseif contains(fUpper, 'MULTITHREAT') || contains(fUpper, 'GAUNTLET') || contains(dUpper, 'GAUNTLET') || contains(dUpper, 'MULTI-HAZARD')
+        scType = 'INDIAN_GAUNTLET';
     elseif contains(fUpper, 'LANECHANGESIMPLE')
         scType = 'LANECHANGESIMPLE';
     elseif contains(fUpper, 'OVERTAKESLOWVEHICLE')
@@ -542,6 +552,16 @@ function [scenario, actorMap] = build_scenario_trajectories(scenario, entities, 
             [scenario, actorMap] = setup_indian_jaywalk_scenario(scenario, entities, params, enableAEB, liberateEgo);
         case 'INDIAN_CATTLE'
             [scenario, actorMap] = setup_indian_cattle_scenario(scenario, entities, params, enableAEB, liberateEgo);
+        case 'INDIAN_WRONGWAY'
+            [scenario, actorMap] = setup_indian_wrongway_scenario(scenario, entities, params, enableAEB, liberateEgo);
+        case 'INDIAN_SCHOOLZONE'
+            [scenario, actorMap] = setup_indian_schoolzone_scenario(scenario, entities, params, enableAEB, liberateEgo);
+        case 'INDIAN_BUSSTOP'
+            [scenario, actorMap] = setup_indian_busstop_scenario(scenario, entities, params, enableAEB, liberateEgo);
+        case 'INDIAN_VENDORCART'
+            [scenario, actorMap] = setup_indian_vendorcart_scenario(scenario, entities, params, enableAEB, liberateEgo);
+        case 'INDIAN_GAUNTLET'
+            [scenario, actorMap] = setup_indian_gauntlet_scenario(scenario, entities, params, enableAEB, liberateEgo);
         case 'LANECHANGESIMPLE'
             [scenario, actorMap] = setup_lanechange_scenario(scenario, entities, params, enableAEB, liberateEgo);
         case 'OVERTAKESLOWVEHICLE'
@@ -569,6 +589,16 @@ function [scenario, actorMap] = build_scenario_trajectories(scenario, entities, 
                 [scenario, actorMap] = setup_indian_jaywalk_scenario(scenario, entities, params, enableAEB, liberateEgo);
             elseif isfield(entities, 'Hazard')
                 [scenario, actorMap] = setup_indian_cattle_scenario(scenario, entities, params, enableAEB, liberateEgo);
+            elseif isfield(entities, 'WrongWayTempo')
+                [scenario, actorMap] = setup_indian_wrongway_scenario(scenario, entities, params, enableAEB, liberateEgo);
+            elseif isfield(entities, 'SchoolBus')
+                [scenario, actorMap] = setup_indian_schoolzone_scenario(scenario, entities, params, enableAEB, liberateEgo);
+            elseif isfield(entities, 'AlightingPassenger') || isfield(entities, 'CityBus')
+                [scenario, actorMap] = setup_indian_busstop_scenario(scenario, entities, params, enableAEB, liberateEgo);
+            elseif isfield(entities, 'VendorCart')
+                [scenario, actorMap] = setup_indian_vendorcart_scenario(scenario, entities, params, enableAEB, liberateEgo);
+            elseif isfield(entities, 'ConstructionBarrier1') || isfield(entities, 'SlowRickshaw')
+                [scenario, actorMap] = setup_indian_gauntlet_scenario(scenario, entities, params, enableAEB, liberateEgo);
             else
                 [scenario, actorMap] = setup_cpnco_scenario(scenario, entities, params, enableAEB, armOffset, liberateEgo);
             end
@@ -934,11 +964,11 @@ function [scenario, actorMap] = setup_indian_autocutin_scenario(scenario, entiti
             egoBrakeX,    -1.75, 0.0;   % auto initiates cut-in, ego slows
             egoYieldX,    -1.75, 0.0;   % maintains safe following distance behind auto
             egoYieldX+75, -1.75, 0.0;
-            280.0,        -1.75, 0.0
+            340.0,        -1.75, 0.0
         ];
         egoSpeeds = [egoSpeed, egoSpeed, min(6.0, autoSpeed * 0.85), autoSpeed, egoSpeed, egoSpeed];
     else
-        egoWaypoints = [20.0, -1.75, 0.0; 280.0, -1.75, 0.0];
+        egoWaypoints = [20.0, -1.75, 0.0; 340.0, -1.75, 0.0];
         egoSpeeds = [egoSpeed, egoSpeed];
     end
     assign_ego_motion(ego, egoWaypoints, egoSpeeds, liberateEgo);
@@ -983,7 +1013,7 @@ function [scenario, actorMap] = setup_indian_twowheeler_scenario(scenario, entit
     ego = vehicle(scenario, 'ClassID', 1, 'Name', 'EgoCar_Blue', ...
         'AssetType', egoData.AssetType, 'Length', egoData.Length, ...
         'Width', egoData.Width, 'Height', egoData.Height, 'PlotColor', [0.1 0.4 0.9]);
-    egoWaypoints = [30.0, -1.75, 0.0; 280.0, -1.75, 0.0];
+    egoWaypoints = [30.0, -1.75, 0.0; 340.0, -1.75, 0.0];
     assign_ego_motion(ego, egoWaypoints, 8.33, liberateEgo);
     actorMap.Ego = ego;
     actorMap.EgoWaypoints = egoWaypoints;
@@ -1011,7 +1041,7 @@ end
 
 function [scenario, actorMap] = setup_indian_jaywalk_scenario(scenario, entities, params, enableAEB, liberateEgo)
     if nargin < 5, liberateEgo = false; end
-    % Mid-block Jaywalking Pedestrian emerging behind Bus
+    % Mid-block Jaywalking - Multi-Pedestrian (Adult + Running Child) with Oncoming Scooter
     actorMap = struct();
 
     egoData = entities.Ego;
@@ -1022,22 +1052,24 @@ function [scenario, actorMap] = setup_indian_jaywalk_scenario(scenario, entities
     if enableAEB
         egoWaypoints = [
             20.0, -1.75, 0.0;
-            85.0, -1.75, 0.0;   % t = 5.8s: detects pedestrian, brakes
-            104.0, -1.75, 0.0;  % t = 8.0s: standstill safely behind crossing path
-            105.0, -1.75, 0.0;  % yields while pedestrian crosses
+            75.0, -1.75, 0.0;   % cruising, detects pedestrian ahead
+            90.0, -1.75, 0.0;   % braking zone
+            104.0, -1.75, 0.0;  % near-standstill safely behind crossing path
+            105.0, -1.75, 0.0;  % yields while pedestrians cross
+            120.0, -1.75, 0.0;  % resumes after clear
             160.0, -1.75, 0.0;
-            280.0, -1.75, 0.0
+            340.0, -1.75, 0.0
         ];
-        egoSpeeds = [11.11, 11.11, 2.0, 0.05, 11.11, 11.11];
+        egoSpeeds = [6.94, 6.94, 3.0, 0.5, 0.05, 6.94, 6.94, 6.94];
     else
-        egoWaypoints = [20.0, -1.75, 0.0; 280.0, -1.75, 0.0];
-        egoSpeeds = [11.11, 11.11];
+        egoWaypoints = [20.0, -1.75, 0.0; 340.0, -1.75, 0.0];
+        egoSpeeds = [6.94, 6.94];
     end
     assign_ego_motion(ego, egoWaypoints, egoSpeeds, liberateEgo);
     actorMap.Ego = ego;
     actorMap.EgoWaypoints = egoWaypoints;
 
-    % Parked Bus on Shoulder
+    % Parked Bus on outer lane (occludes pedestrians)
     busData = entities.ParkedBus;
     bus = vehicle(scenario, 'ClassID', 2, 'Name', 'BMTC_Bus', ...
         'AssetType', 'BoxTruck', 'Length', busData.Length, ...
@@ -1045,7 +1077,7 @@ function [scenario, actorMap] = setup_indian_jaywalk_scenario(scenario, entities
         'Position', [90.0, -5.25, 0.0], 'Yaw', 0, 'PlotColor', [0.1 0.6 0.3]);
     actorMap.ParkedBus = bus;
 
-    % Jaywalking Pedestrian
+    % Adult Jaywalking Pedestrian (slower, walks across)
     pedData = entities.Pedestrian;
     ped = actor(scenario, 'ClassID', 4, 'Name', 'Pedestrian_Jaywalker', ...
         'AssetType', 'MalePedestrian', 'Length', 0.28, ...
@@ -1059,11 +1091,39 @@ function [scenario, actorMap] = setup_indian_jaywalk_scenario(scenario, entities
     pedSpeeds = [1.5, 1.5, 1.5, 1.5];
     trajectory(ped, pedWaypoints, pedSpeeds);
     actorMap.Pedestrian = ped;
+
+    % Running Child (faster, smaller, crosses slightly ahead of adult - more dangerous)
+    if isfield(entities, 'RunningChild')
+        childData = entities.RunningChild;
+        child = actor(scenario, 'ClassID', 4, 'Name', 'Child_Runner', ...
+            'AssetType', 'ChildPedestrian', 'Length', 0.25, ...
+            'Width', 0.35, 'Height', 1.15, 'PlotColor', [1.0 0.3 0.1]);
+        childWaypoints = [
+            93.0, -7.0, 0.0;
+            93.0, -5.25, 0.0;   % emerges from behind bus
+            93.0, -1.75, 0.0;   % sprints across lane 1
+            93.0,  1.50, 0.0    % reaches median
+        ];
+        childSpeeds = [2.5, 2.5, 2.5, 2.5];
+        trajectory(child, childWaypoints, childSpeeds);
+        actorMap.RunningChild = child;
+    end
+
+    % Oncoming Scooter in opposing lane (adds visual complexity + blocks lane change escape)
+    if isfield(entities, 'OncomingScooter')
+        scData = entities.OncomingScooter;
+        scooter = actor(scenario, 'ClassID', 3, 'Name', 'HondaActiva_Oncoming', ...
+            'AssetType', 'Bicyclist', 'Length', scData.Length, ...
+            'Width', scData.Width, 'Height', scData.Height, 'PlotColor', [0.6 0.2 0.8]);
+        scooterWps = [200.0, 1.75, 0.0; 10.0, 1.75, 0.0];
+        trajectory(scooter, scooterWps, 8.33);
+        actorMap.OncomingScooter = scooter;
+    end
 end
 
 function [scenario, actorMap] = setup_indian_cattle_scenario(scenario, entities, params, enableAEB, liberateEgo)
     if nargin < 5, liberateEgo = false; end
-    % Stationary Hazard / Cattle Avoidance
+    % Multiple Stray Cattle - Wandering cow + Stationary cow + Oncoming bus + Shoulder pedestrian
     actorMap = struct();
 
     egoData = entities.Ego;
@@ -1072,29 +1132,44 @@ function [scenario, actorMap] = setup_indian_cattle_scenario(scenario, entities,
         'Width', egoData.Width, 'Height', egoData.Height, 'PlotColor', [0.1 0.4 0.9]);
 
     if enableAEB
-        % Ego approaches at 40 km/h, slows to 15 km/h before obstacle,
-        % steers around into outer lane (Y = -5.25), then returns to lane 1
+        % Ego approaches at 25 km/h, slows down before cattle cluster,
+        % steers around into outer lane (Y = -5.00), then returns to lane 1
         egoWaypoints = [
             20.0, -1.75, 0.0;
-            80.0, -1.75, 0.0;   % slows down
-            95.0, -4.50, 0.0;   % steers around obstacle
-            115.0, -4.50, 0.0;  % passing obstacle
-            135.0, -1.75, 0.0;  % returns to lane 1
-            280.0, -1.75, 0.0
+            75.0, -1.75, 0.0;   % detect cattle ahead, begin braking
+            90.0, -3.50, 0.0;   % steer toward outer lane
+            100.0, -5.00, 0.0;  % passing cow cluster on outside
+            115.0, -5.00, 0.0;  % clear of second cow
+            135.0, -1.75, 0.0;  % smooth return to lane 1
+            200.0, -1.75, 0.0;
+            340.0, -1.75, 0.0
         ];
-        egoSpeeds = [11.11, 4.16, 4.16, 4.16, 11.11, 11.11];
+        egoSpeeds = [6.94, 6.94, 3.5, 3.5, 3.5, 6.94, 6.94, 6.94];
     else
-        egoWaypoints = [20.0, -1.75, 0.0; 280.0, -1.75, 0.0];
-        egoSpeeds = [11.11, 11.11];
+        egoWaypoints = [20.0, -1.75, 0.0; 340.0, -1.75, 0.0];
+        egoSpeeds = [6.94, 6.94];
     end
     assign_ego_motion(ego, egoWaypoints, egoSpeeds, liberateEgo);
     actorMap.Ego = ego;
     actorMap.EgoWaypoints = egoWaypoints;
 
-    % Cattle / Static Hazard in Lane 1
-    actorMap.Hazard = actor(scenario, 'ClassID', 5, 'Name', 'Cow_Hazard', ...
-        'AssetType', 'Barrier', 'Length', 2.10, 'Width', 1.10, 'Height', 1.40, ...
-        'Position', [105.0, -1.75, 0.0], 'Yaw', 0, 'PlotColor', [0.8 0.8 0.8]);
+    % Wandering Cattle in Lane 1 (slowly moving forward at 0.8 m/s)
+    cow1Speed = getParam(params, 'Cow1_Speed', 0.8);
+    cow1 = actor(scenario, 'ClassID', 4, 'Name', 'Cow_Wandering', ...
+        'AssetType', 'MalePedestrian', 'Length', 2.10, 'Width', 1.10, 'Height', 1.40, ...
+        'PlotColor', [0.8 0.8 0.8]);
+    cow1Wps = [100.0, -1.75, 0.0; 105.0, -2.30, 0.0; 112.0, -1.75, 0.0; 120.0, -2.00, 0.0];
+    cow1Speeds = [cow1Speed, cow1Speed, cow1Speed, cow1Speed];
+    trajectory(cow1, cow1Wps, cow1Speeds);
+    actorMap.Hazard = cow1;
+
+    % Second Stationary Cow at lane divider (blocks outer lane escape partially)
+    if isfield(entities, 'StrayCattle2')
+        cow2 = actor(scenario, 'ClassID', 5, 'Name', 'Cow_Stationary', ...
+            'AssetType', 'Barrier', 'Length', 1.90, 'Width', 1.00, 'Height', 1.30, ...
+            'Position', [108.0, -3.50, 0.0], 'Yaw', 0, 'PlotColor', [0.7 0.7 0.7]);
+        actorMap.StrayCattle2 = cow2;
+    end
 
     % Oncoming vehicle in opposing lane
     if isfield(entities, 'OncomingVehicle')
@@ -1105,6 +1180,17 @@ function [scenario, actorMap] = setup_indian_cattle_scenario(scenario, entities,
         onWaypoints = [250.0, 1.75, 0.0; 10.0, 1.75, 0.0];
         trajectory(onBus, onWaypoints, 9.72);
         actorMap.OncomingBus = onBus;
+    end
+
+    % Shoulder Pedestrian (adds visual complexity near cattle area)
+    if isfield(entities, 'ShoulderPedestrian')
+        pedData = entities.ShoulderPedestrian;
+        ped = actor(scenario, 'ClassID', 4, 'Name', 'ShoulderPed', ...
+            'AssetType', 'MalePedestrian', 'Length', pedData.Length, ...
+            'Width', pedData.Width, 'Height', pedData.Height, 'PlotColor', [0.85 0.55 0.10]);
+        pedWps = [95.0, -6.50, 0.0; 140.0, -6.50, 0.0];
+        trajectory(ped, pedWps, 1.0);
+        actorMap.ShoulderPedestrian = ped;
     end
 end
 
@@ -1202,11 +1288,11 @@ function [scenario, actorMap] = setup_indian_congestion_scenario(scenario, entit
             60.0,  -1.75, 0.0;   % encounters slow queue, decelerates to match crawl
             90.0,  -1.75, 0.0;
             140.0, -1.75, 0.0;
-            280.0, -1.75, 0.0
+            340.0, -1.75, 0.0
         ];
         egoSpeeds = [egoSpeed, egoSpeed * 0.8, queueSpeed, queueSpeed, queueSpeed, queueSpeed];
     else
-        egoWaypoints = [20.0, -1.75, 0.0; 280.0, -1.75, 0.0];
+        egoWaypoints = [20.0, -1.75, 0.0; 340.0, -1.75, 0.0];
         egoSpeeds = [egoSpeed, egoSpeed];
     end
     assign_ego_motion(ego, egoWaypoints, egoSpeeds, liberateEgo);
@@ -1295,22 +1381,20 @@ function [scenario, actorMap] = setup_indian_pothole_scenario(scenario, entities
         % executes smooth sinusoidal lane change into clear adjacent lane (Y = +1.75m),
         % and merges cleanly back into original driving lane with zero spline overshoot!
         egoWaypoints = [
-            25.0,  -1.75, 0.0;   % Straight cruise in original lane
-            50.0,  -1.75, 0.0;   % Detects barrier ahead, begins deceleration
-            65.0,  -0.85, 0.0;   % Smooth S-curve transition toward adjacent lane
-            75.0,   0.85, 0.0;   % Crossing centerline smoothly
-            85.0,   1.75, 0.0;   % Centered in adjacent lane past barrier at 14 km/h
-            95.0,   1.75, 0.0;   % Clear of barrier envelope
-            105.0,  0.85, 0.0;   % Smooth transition returning to lane 1
-            115.0, -0.85, 0.0;   % Crossing centerline back to lane 1
-            130.0, -1.75, 0.0;   % Re-centered cleanly in original lane
-            160.0, -1.75, 0.0;   % Straight lane-keeping anchor
-            200.0, -1.75, 0.0;   % Straight lane-keeping anchor
-            280.0, -1.75, 0.0    % Exits road
+            25.0,  -1.75, 0.0;   % Straight cruise in Lane -1 (inner eastbound lane)
+            50.0,  -1.75, 0.0;   % Detects barrier/pothole ahead, begins deceleration
+            65.0,  -2.75, 0.0;   % Smooth transition right toward Lane -2 (our own side)
+            80.0,  -4.75, 0.0;   % Safely entering Lane -2 before the hazard
+            95.0,  -5.00, 0.0;   % Centered in Lane -2 past the barrier
+            120.0, -5.00, 0.0;   % COMMITTED to Lane -2: stays in safe lane, no forced bounce-back
+            160.0, -5.00, 0.0;   % Straight cruising in Lane -2
+            200.0, -5.00, 0.0;   % Straight cruising in Lane -2
+            280.0, -5.00, 0.0;   % Straight cruising in Lane -2
+            340.0, -5.00, 0.0    % Clean road exit in Lane -2
         ];
-        egoSpeeds = [egoSpeed, egoSpeed, 4.0, 3.89, 3.89, 3.89, 3.89, 4.0, egoSpeed, egoSpeed, egoSpeed, egoSpeed];
+        egoSpeeds = [egoSpeed, egoSpeed, 4.2, 4.0, 4.0, egoSpeed, egoSpeed, egoSpeed, egoSpeed, egoSpeed];
     else
-        egoWaypoints = [25.0, -1.75, 0.0; 280.0, -1.75, 0.0];
+        egoWaypoints = [25.0, -1.75, 0.0; 340.0, -1.75, 0.0];
         egoSpeeds = [egoSpeed, egoSpeed];
     end
     assign_ego_motion(ego, egoWaypoints, egoSpeeds, liberateEgo);
@@ -1322,7 +1406,7 @@ function [scenario, actorMap] = setup_indian_pothole_scenario(scenario, entities
     ped = actor(scenario, 'ClassID', 4, 'Name', 'ShoulderPedestrian', ...
         'AssetType', 'MalePedestrian', 'Length', pedData.Length, ...
         'Width', pedData.Width, 'Height', pedData.Height, 'PlotColor', [0.85 0.55 0.10]);
-    pedWps = [80.0, -4.20, 0.0; 130.0, -4.20, 0.0];
+    pedWps = [80.0, -6.50, 0.0; 130.0, -6.50, 0.0];
     trajectory(ped, pedWps, pedSpeed);
     actorMap.ShoulderPedestrian = ped;
 
@@ -1333,7 +1417,26 @@ function [scenario, actorMap] = setup_indian_pothole_scenario(scenario, entities
     barrier.Position = [85.0, -1.75, 0.4];
     actorMap.RoadBarrier = barrier;
 
-    % 4. Register Road Surface Defects in actorMap
+    % 4. Warning Cone (advance warning marker at X=80)
+    if isfield(entities, 'WarningCone')
+        cone = actor(scenario, 'ClassID', 5, 'Name', 'WarningCone', ...
+            'AssetType', 'JerseyBarrier', 'Length', 0.30, 'Width', 0.30, 'Height', 0.70, ...
+            'Position', [80.0, -1.75, 0.0], 'Yaw', 0, 'PlotColor', [1.0 0.6 0.0]);
+        actorMap.WarningCone = cone;
+    end
+
+    % 5. Oncoming Car in opposing lane (creates tension during detour)
+    if isfield(entities, 'OncomingCar')
+        onData = entities.OncomingCar;
+        onCar = vehicle(scenario, 'ClassID', 1, 'Name', 'OncomingSwift', ...
+            'AssetType', onData.AssetType, 'Length', onData.Length, ...
+            'Width', onData.Width, 'Height', onData.Height, 'PlotColor', [0.9 0.2 0.2]);
+        onWps = [220.0, 1.75, 0.0; 10.0, 1.75, 0.0];
+        trajectory(onCar, onWps, 8.33);
+        actorMap.OncomingCar = onCar;
+    end
+
+    % 6. Register Road Surface Defects in actorMap
     % Potholes: [X, Y, depth_cm, radius_m, severity]
     actorMap.Potholes = [
         85.0,  -1.75, 8.5, 0.75, 1.0;   % Deep cavity wall (lethal in costmap, cost 254)
@@ -1341,3 +1444,450 @@ function [scenario, actorMap] = setup_indian_pothole_scenario(scenario, entities
     ];
 end
 
+
+function [scenario, actorMap] = setup_indian_wrongway_scenario(scenario, entities, params, enableAEB, liberateEgo)
+    if nargin < 5, liberateEgo = false; end
+    % Wrong-Way Vehicle Head-On Encounter
+    % Ego faces a tempo/mini-truck driving HEAD-ON in ego's lane
+    actorMap = struct();
+
+    egoSpeed = getParam(params, 'Ego_Speed', 6.94);
+
+    egoData = entities.Ego;
+    ego = vehicle(scenario, 'ClassID', 1, 'Name', 'EgoCar_Blue', ...
+        'AssetType', egoData.AssetType, 'Length', egoData.Length, ...
+        'Width', egoData.Width, 'Height', egoData.Height, 'PlotColor', [0.10 0.45 0.95]);
+
+    if enableAEB
+        % Ego detects oncoming vehicle, brakes hard, swerves to outer lane
+        egoWaypoints = [
+            20.0,  -1.75, 0.0;   % Cruising in lane 1
+            60.0,  -1.75, 0.0;   % Detects oncoming vehicle
+            80.0,  -1.75, 0.0;   % Emergency braking begins
+            90.0,  -3.50, 0.0;   % Swerving to outer lane
+            100.0, -5.00, 0.0;   % Settled in outer lane, tempo passes
+            120.0, -5.00, 0.0;   % Clear of wrong-way vehicle
+            140.0, -1.75, 0.0;   % Return to lane 1
+            200.0, -1.75, 0.0;
+            340.0, -1.75, 0.0
+        ];
+        egoSpeeds = [egoSpeed, egoSpeed, 3.0, 2.5, 2.5, 3.5, egoSpeed, egoSpeed, egoSpeed];
+    else
+        egoWaypoints = [20.0, -1.75, 0.0; 340.0, -1.75, 0.0];
+        egoSpeeds = [egoSpeed, egoSpeed];
+    end
+    assign_ego_motion(ego, egoWaypoints, egoSpeeds, liberateEgo);
+    actorMap.Ego = ego;
+    actorMap.EgoWaypoints = egoWaypoints;
+
+    % Wrong-Way Tempo (driving head-on toward ego in ego's lane)
+    wwData = entities.WrongWayTempo;
+    wwSpeed = getParam(params, 'WrongWay_Speed', 8.33);
+    ww = vehicle(scenario, 'ClassID', 2, 'Name', 'WrongWay_Tempo', ...
+        'AssetType', 'BoxTruck', 'Length', wwData.Length, ...
+        'Width', wwData.Width, 'Height', wwData.Height, 'PlotColor', [0.9 0.1 0.1]);
+    wwWps = [200.0, -1.75, 0.0; 10.0, -1.75, 0.0];
+    trajectory(ww, wwWps, wwSpeed);
+    actorMap.WrongWayTempo = ww;
+
+    % Parked Delivery Van blocking outer lane escape
+    if isfield(entities, 'ParkedDeliveryVan')
+        pvData = entities.ParkedDeliveryVan;
+        pv = vehicle(scenario, 'ClassID', 1, 'Name', 'DeliveryVan', ...
+            'AssetType', pvData.AssetType, 'Length', pvData.Length, ...
+            'Width', pvData.Width, 'Height', pvData.Height, ...
+            'Position', [110.0, -5.25, 0.0], 'Yaw', 0, 'PlotColor', [0.4 0.4 0.4]);
+        actorMap.ParkedDeliveryVan = pv;
+    end
+
+    % Shoulder Pedestrian
+    if isfield(entities, 'ShoulderPedestrian')
+        spData = entities.ShoulderPedestrian;
+        sp = actor(scenario, 'ClassID', 4, 'Name', 'ShoulderPed', ...
+            'AssetType', 'MalePedestrian', 'Length', spData.Length, ...
+            'Width', spData.Width, 'Height', spData.Height, 'PlotColor', [0.85 0.55 0.10]);
+        spWps = [130.0, -6.50, 0.0; 170.0, -6.50, 0.0];
+        trajectory(sp, spWps, 1.0);
+        actorMap.ShoulderPedestrian = sp;
+    end
+
+    % Legal Oncoming Bike in opposing lane
+    if isfield(entities, 'OncomingBike')
+        obData = entities.OncomingBike;
+        ob = actor(scenario, 'ClassID', 3, 'Name', 'OncomingPulsar', ...
+            'AssetType', 'Bicyclist', 'Length', obData.Length, ...
+            'Width', obData.Width, 'Height', obData.Height, 'PlotColor', [0.6 0.2 0.8]);
+        obWps = [180.0, 1.75, 0.0; 10.0, 1.75, 0.0];
+        trajectory(ob, obWps, 11.11);
+        actorMap.OncomingBike = ob;
+    end
+end
+
+function [scenario, actorMap] = setup_indian_schoolzone_scenario(scenario, entities, params, enableAEB, liberateEgo)
+    if nargin < 5, liberateEgo = false; end
+    % School Zone - Multiple Children Crossing Near Stopped School Bus
+    actorMap = struct();
+
+    egoSpeed = getParam(params, 'Ego_Speed', 6.94);
+
+    egoData = entities.Ego;
+    ego = vehicle(scenario, 'ClassID', 1, 'Name', 'EgoCar_Blue', ...
+        'AssetType', egoData.AssetType, 'Length', egoData.Length, ...
+        'Width', egoData.Width, 'Height', egoData.Height, 'PlotColor', [0.10 0.45 0.95]);
+
+    if enableAEB
+        % Ego sees school bus, slows down, stops for children crossing
+        egoWaypoints = [
+            25.0,  -1.75, 0.0;   % Cruising
+            80.0,  -1.75, 0.0;   % Detects school bus ahead
+            100.0, -1.75, 0.0;   % Braking
+            108.0, -1.75, 0.0;   % Near-standstill
+            110.0, -1.75, 0.0;   % Waiting for children to cross
+            112.0, -1.75, 0.0;   % Creeping forward after first child
+            115.0, -1.75, 0.0;   % Second stop for later children
+            140.0, -1.75, 0.0;   % Resumes
+            200.0, -1.75, 0.0;
+            340.0, -1.75, 0.0
+        ];
+        egoSpeeds = [egoSpeed, egoSpeed, 3.0, 0.5, 0.05, 0.5, 0.05, egoSpeed, egoSpeed, egoSpeed];
+    else
+        egoWaypoints = [25.0, -1.75, 0.0; 340.0, -1.75, 0.0];
+        egoSpeeds = [egoSpeed, egoSpeed];
+    end
+    assign_ego_motion(ego, egoWaypoints, egoSpeeds, liberateEgo);
+    actorMap.Ego = ego;
+    actorMap.EgoWaypoints = egoWaypoints;
+
+    % School Bus (stopped in outer lane)
+    busData = entities.SchoolBus;
+    bus = vehicle(scenario, 'ClassID', 2, 'Name', 'SchoolBus_Yellow', ...
+        'AssetType', 'BoxTruck', 'Length', busData.Length, ...
+        'Width', busData.Width, 'Height', busData.Height, ...
+        'Position', [120.0, -5.25, 0.0], 'Yaw', 0, 'PlotColor', [0.95 0.85 0.10]);
+    actorMap.SchoolBus = bus;
+
+    % Running Child (fast, crosses first)
+    if isfield(entities, 'RunningChild')
+        rc = actor(scenario, 'ClassID', 4, 'Name', 'RunningChild', ...
+            'AssetType', 'ChildPedestrian', 'Length', 0.25, ...
+            'Width', 0.35, 'Height', 1.15, 'PlotColor', [1.0 0.3 0.1]);
+        rcWps = [115.0, -7.0, 0.0; 115.0, -5.25, 0.0; 115.0, -1.75, 0.0; 115.0, 1.50, 0.0];
+        trajectory(rc, rcWps, getParam(params, 'RunningChild_Speed', 2.0));
+        actorMap.RunningChild = rc;
+    end
+
+    % Walking Child (slower, crosses second)
+    if isfield(entities, 'WalkingChild')
+        wc = actor(scenario, 'ClassID', 4, 'Name', 'WalkingChild', ...
+            'AssetType', 'ChildPedestrian', 'Length', 0.25, ...
+            'Width', 0.35, 'Height', 1.15, 'PlotColor', [0.2 0.7 1.0]);
+        wcWps = [122.0, -7.0, 0.0; 122.0, -5.25, 0.0; 122.0, -1.75, 0.0; 122.0, 1.50, 0.0];
+        trajectory(wc, wcWps, getParam(params, 'WalkingChild_Speed', 1.2));
+        actorMap.WalkingChild = wc;
+    end
+
+    % Sprinting Child (fastest, crosses last - most dangerous)
+    if isfield(entities, 'SprintingChild')
+        sc = actor(scenario, 'ClassID', 4, 'Name', 'SprintingChild', ...
+            'AssetType', 'ChildPedestrian', 'Length', 0.25, ...
+            'Width', 0.35, 'Height', 1.15, 'PlotColor', [1.0 0.1 0.5]);
+        scWps = [128.0, -7.0, 0.0; 128.0, -5.25, 0.0; 128.0, -1.75, 0.0; 128.0, 1.50, 0.0];
+        trajectory(sc, scWps, getParam(params, 'SprintingChild_Speed', 2.8));
+        actorMap.SprintingChild = sc;
+    end
+
+    % Guardian adult waiting on the other side
+    if isfield(entities, 'Guardian')
+        gd = actor(scenario, 'ClassID', 4, 'Name', 'Guardian_Adult', ...
+            'AssetType', 'MalePedestrian', 'Length', 0.28, ...
+            'Width', 0.45, 'Height', 1.75, ...
+            'Position', [118.0, 2.0, 0.0], 'Yaw', 270, 'PlotColor', [0.3 0.6 0.3]);
+        actorMap.Guardian = gd;
+    end
+end
+
+function [scenario, actorMap] = setup_indian_busstop_scenario(scenario, entities, params, enableAEB, liberateEgo)
+    if nargin < 5, liberateEgo = false; end
+    % Bus Stop Hazard: Bus stopping + Alighting Passenger + Overtaking Motorcycle
+    actorMap = struct();
+
+    egoSpeed = getParam(params, 'Ego_Speed', 6.94);
+
+    egoData = entities.Ego;
+    ego = vehicle(scenario, 'ClassID', 1, 'Name', 'EgoCar_Blue', ...
+        'AssetType', egoData.AssetType, 'Length', egoData.Length, ...
+        'Width', egoData.Width, 'Height', egoData.Height, 'PlotColor', [0.10 0.45 0.95]);
+
+    if enableAEB
+        % Ego detects bus slowing + passenger stepping out, brakes and holds
+        egoWaypoints = [
+            25.0,  -1.75, 0.0;   % Cruising
+            70.0,  -1.75, 0.0;   % Detects bus ahead
+            90.0,  -1.75, 0.0;   % Slowing behind bus
+            100.0, -1.75, 0.0;   % Near-stop as passenger steps out
+            102.0, -1.75, 0.0;   % Waiting
+            115.0, -1.75, 0.0;   % Resumes carefully after clear
+            160.0, -1.75, 0.0;
+            340.0, -1.75, 0.0
+        ];
+        egoSpeeds = [egoSpeed, egoSpeed, 3.0, 0.5, 0.05, 4.0, egoSpeed, egoSpeed];
+    else
+        egoWaypoints = [25.0, -1.75, 0.0; 340.0, -1.75, 0.0];
+        egoSpeeds = [egoSpeed, egoSpeed];
+    end
+    assign_ego_motion(ego, egoWaypoints, egoSpeeds, liberateEgo);
+    actorMap.Ego = ego;
+    actorMap.EgoWaypoints = egoWaypoints;
+
+    % City Bus (decelerating to stop)
+    busData = entities.CityBus;
+    busInitSpeed = getParam(params, 'Bus_InitSpeed', 4.17);
+    bus = vehicle(scenario, 'ClassID', 2, 'Name', 'CityBus_BMTC', ...
+        'AssetType', 'BoxTruck', 'Length', busData.Length, ...
+        'Width', busData.Width, 'Height', busData.Height, 'PlotColor', [0.1 0.6 0.3]);
+    busWps = [110.0, -5.25, 0.0; 125.0, -5.25, 0.0; 130.0, -5.25, 0.0];
+    busSpeeds = [busInitSpeed, 1.5, 0.0];
+    trajectory(bus, busWps, busSpeeds);
+    actorMap.CityBus = bus;
+
+    % Alighting Passenger (steps into traffic from bus door area)
+    if isfield(entities, 'AlightingPassenger')
+        ap = actor(scenario, 'ClassID', 4, 'Name', 'AlightingPassenger', ...
+            'AssetType', 'MalePedestrian', 'Length', 0.28, ...
+            'Width', 0.45, 'Height', 1.75, 'PlotColor', [0.95 0.5 0.1]);
+        apWps = [
+            108.0, -5.00, 0.0;   % At bus door
+            108.0, -3.50, 0.0;   % Steps toward road
+            108.0, -1.75, 0.0;   % Walks into ego lane
+            108.0, -0.50, 0.0    % Continues crossing
+        ];
+        apSpeeds = [0.0, 1.2, 1.5, 1.5];
+        trajectory(ap, apWps, apSpeeds);
+        actorMap.AlightingPassenger = ap;
+    end
+
+    % Overtaking Motorcycle (fast, coming from behind bus)
+    if isfield(entities, 'OvertakingBike')
+        obData = entities.OvertakingBike;
+        ob = actor(scenario, 'ClassID', 3, 'Name', 'OvertakingPulsar', ...
+            'AssetType', 'Bicyclist', 'Length', obData.Length, ...
+            'Width', obData.Width, 'Height', obData.Height, 'PlotColor', [0.8 0.2 0.2]);
+        obWps = [75.0, -5.25, 0.0; 100.0, -3.50, 0.0; 130.0, -1.75, 0.0; 200.0, -1.75, 0.0];
+        obSpeeds = [13.88, 13.88, 13.88, 13.88];
+        trajectory(ob, obWps, obSpeeds);
+        actorMap.OvertakingBike = ob;
+    end
+
+    % Oncoming Car in opposing lane
+    if isfield(entities, 'OncomingCar')
+        ocData = entities.OncomingCar;
+        oc = vehicle(scenario, 'ClassID', 1, 'Name', 'OncomingDzire', ...
+            'AssetType', ocData.AssetType, 'Length', ocData.Length, ...
+            'Width', ocData.Width, 'Height', ocData.Height, 'PlotColor', [0.5 0.5 0.9]);
+        ocWps = [230.0, 1.75, 0.0; 10.0, 1.75, 0.0];
+        trajectory(oc, ocWps, 8.33);
+        actorMap.OncomingCar = oc;
+    end
+end
+
+function [scenario, actorMap] = setup_indian_vendorcart_scenario(scenario, entities, params, enableAEB, liberateEgo)
+    if nargin < 5, liberateEgo = false; end
+    % Vendor Handcart Swerving into Ego Lane with Oncoming Bus
+    actorMap = struct();
+
+    egoSpeed = getParam(params, 'Ego_Speed', 6.94);
+
+    egoData = entities.Ego;
+    ego = vehicle(scenario, 'ClassID', 1, 'Name', 'EgoCar_Blue', ...
+        'AssetType', egoData.AssetType, 'Length', egoData.Length, ...
+        'Width', egoData.Width, 'Height', egoData.Height, 'PlotColor', [0.10 0.45 0.95]);
+
+    if enableAEB
+        % Ego detects vendor cart swerving, brakes hard since oncoming bus blocks escape
+        egoWaypoints = [
+            25.0,  -1.75, 0.0;   % Cruising
+            70.0,  -1.75, 0.0;   % Detects slow cart ahead
+            85.0,  -1.75, 0.0;   % Cart starts swerving
+            95.0,  -1.75, 0.0;   % Emergency braking (can't swerve left - oncoming bus)
+            98.0,  -1.75, 0.0;   % Near-standstill behind cart
+            100.0, -1.75, 0.0;   % Waiting for cart to clear or bus to pass
+            120.0, -1.75, 0.0;   % Resumes
+            200.0, -1.75, 0.0;
+            340.0, -1.75, 0.0
+        ];
+        egoSpeeds = [egoSpeed, egoSpeed, 3.0, 1.0, 0.05, 2.0, egoSpeed, egoSpeed, egoSpeed];
+    else
+        egoWaypoints = [25.0, -1.75, 0.0; 340.0, -1.75, 0.0];
+        egoSpeeds = [egoSpeed, egoSpeed];
+    end
+    assign_ego_motion(ego, egoWaypoints, egoSpeeds, liberateEgo);
+    actorMap.Ego = ego;
+    actorMap.EgoWaypoints = egoWaypoints;
+
+    % Vendor Cart (swerves from shoulder into ego lane)
+    cartSpeed = getParam(params, 'Cart_Speed', 1.5);
+    cart = actor(scenario, 'ClassID', 4, 'Name', 'VendorHandcart', ...
+        'AssetType', 'MalePedestrian', 'Length', 1.80, 'Width', 1.20, 'Height', 1.50, ...
+        'PlotColor', [0.7 0.5 0.2]);
+    cartWps = [
+        105.0, -5.80, 0.0;   % Starting on shoulder
+        108.0, -5.50, 0.0;   % Drifting slightly
+        112.0, -3.50, 0.0;   % Swerving into lane divider
+        115.0, -2.00, 0.0;   % Entering ego lane
+        120.0, -1.75, 0.0;   % Fully in ego lane
+        140.0, -1.75, 0.0    % Continuing in lane
+    ];
+    cartSpeeds = [cartSpeed, cartSpeed, cartSpeed, cartSpeed, cartSpeed, cartSpeed];
+    trajectory(cart, cartWps, cartSpeeds);
+    actorMap.VendorCart = cart;
+
+    % Oncoming Bus (blocks opposing lane escape)
+    if isfield(entities, 'OncomingBus')
+        obData = entities.OncomingBus;
+        ob = vehicle(scenario, 'ClassID', 2, 'Name', 'KSRTC_Bus', ...
+            'AssetType', 'BoxTruck', 'Length', obData.Length, ...
+            'Width', obData.Width, 'Height', obData.Height, 'PlotColor', [0.2 0.7 0.4]);
+        obWps = [250.0, 1.75, 0.0; 10.0, 1.75, 0.0];
+        trajectory(ob, obWps, 11.11);
+        actorMap.OncomingBus = ob;
+    end
+
+    % Parked Car (blocks shoulder ahead of cart)
+    if isfield(entities, 'ParkedCar')
+        pcData = entities.ParkedCar;
+        pc = vehicle(scenario, 'ClassID', 1, 'Name', 'ParkedCar', ...
+            'AssetType', pcData.AssetType, 'Length', pcData.Length, ...
+            'Width', pcData.Width, 'Height', pcData.Height, ...
+            'Position', [130.0, -5.50, 0.0], 'Yaw', 0, 'PlotColor', [0.5 0.5 0.5]);
+        actorMap.ParkedCar = pc;
+    end
+
+    % Curb Pedestrian
+    if isfield(entities, 'CurbPedestrian')
+        cpData = entities.CurbPedestrian;
+        cp = actor(scenario, 'ClassID', 4, 'Name', 'CurbPedestrian', ...
+            'AssetType', 'MalePedestrian', 'Length', cpData.Length, ...
+            'Width', cpData.Width, 'Height', cpData.Height, 'PlotColor', [0.6 0.4 0.2]);
+        cpWps = [100.0, -6.80, 0.0; 140.0, -6.80, 0.0];
+        trajectory(cp, cpWps, 0.8);
+        actorMap.CurbPedestrian = cp;
+    end
+end
+
+function [scenario, actorMap] = setup_indian_gauntlet_scenario(scenario, entities, params, enableAEB, liberateEgo)
+    if nargin < 5, liberateEgo = false; end
+    % THE GAUNTLET - Sequential Multi-Hazard Stress Test
+    % Phase 1 (X~70-90):  Slow rickshaw crawling -> overtake
+    % Phase 2 (X~140-160): Construction barrier + worker -> reroute
+    % Phase 3 (X~220-240): Jaywalker behind parked truck -> emergency brake
+    actorMap = struct();
+
+    egoSpeed = getParam(params, 'Ego_Speed', 6.94);
+
+    egoData = entities.Ego;
+    ego = vehicle(scenario, 'ClassID', 1, 'Name', 'EgoCar_Blue', ...
+        'AssetType', egoData.AssetType, 'Length', egoData.Length, ...
+        'Width', egoData.Width, 'Height', egoData.Height, 'PlotColor', [0.10 0.45 0.95]);
+
+    if enableAEB
+        % Phase 1: Overtake rickshaw via outer lane
+        % Phase 2: Detour around construction barriers via opposing lane
+        % Phase 3: Emergency brake for jaywalker
+        egoWaypoints = [
+            15.0,  -1.75, 0.0;   % Start
+            40.0,  -1.75, 0.0;   % Cruising
+            55.0,  -1.75, 0.0;   % Detects slow rickshaw
+            65.0,  -3.50, 0.0;   % Swerve to outer lane to overtake
+            80.0,  -5.00, 0.0;   % Passing rickshaw
+            95.0,  -1.75, 0.0;   % Return to lane 1
+            120.0, -1.75, 0.0;   % Cruising toward construction
+            130.0, -2.75, 0.0;   % Detects barriers, start detour to right lane (Lane -2 on our own side)
+            140.0, -5.00, 0.0;   % In right lane safely clear of barriers
+            155.0, -5.00, 0.0;   % Passing barriers on right on our own side
+            170.0, -2.75, 0.0;   % Returning toward lane 1
+            185.0, -1.75, 0.0;   % Back in lane 1
+            210.0, -1.75, 0.0;   % Cruising toward Phase 3
+            220.0, -1.75, 0.0;   % Detects jaywalker, emergency braking
+            225.0, -1.75, 0.0;   % Near-standstill
+            240.0, -1.75, 0.0;   % Resumes after jaywalker clears
+            280.0, -1.75, 0.0;   % Straight cruising
+            340.0, -1.75, 0.0    % Clean road exit
+        ];
+        egoSpeeds = [egoSpeed, egoSpeed, 4.0, 4.0, 4.0, egoSpeed, egoSpeed, ...
+                     4.0, 3.5, 3.5, 4.0, egoSpeed, egoSpeed, 2.0, 0.05, egoSpeed, egoSpeed, egoSpeed];
+    else
+        egoWaypoints = [15.0, -1.75, 0.0; 340.0, -1.75, 0.0];
+        egoSpeeds = [egoSpeed, egoSpeed];
+    end
+    assign_ego_motion(ego, egoWaypoints, egoSpeeds, liberateEgo);
+    actorMap.Ego = ego;
+    actorMap.EgoWaypoints = egoWaypoints;
+
+    % Phase 1: Slow Auto-Rickshaw crawling in lane 1
+    if isfield(entities, 'SlowRickshaw')
+        rkData = entities.SlowRickshaw;
+        rk = vehicle(scenario, 'ClassID', 1, 'Name', 'SlowRickshaw', ...
+            'AssetType', rkData.AssetType, 'Length', rkData.Length, ...
+            'Width', rkData.Width, 'Height', rkData.Height, 'PlotColor', [0.95 0.85 0.10]);
+        rkSpeed = getParam(params, 'Rickshaw_Speed', 2.78);
+        rkWps = [75.0, -1.75, 0.0; 160.0, -1.75, 0.0];
+        trajectory(rk, rkWps, rkSpeed);
+        actorMap.SlowRickshaw = rk;
+    end
+
+    % Phase 2: Construction Barriers blocking lane 1
+    if isfield(entities, 'ConstructionBarrier1')
+        b1 = actor(scenario, 'ClassID', 5, 'Name', 'ConstructionBarrier1', ...
+            'AssetType', 'JerseyBarrier', 'Length', 5.0, 'Width', 0.8, 'Height', 0.8, ...
+            'Position', [145.0, -1.75, 0.4], 'Yaw', 0, 'PlotColor', [0.95 0.45 0.10]);
+        actorMap.ConstructionBarrier1 = b1;
+    end
+    if isfield(entities, 'ConstructionBarrier2')
+        b2 = actor(scenario, 'ClassID', 5, 'Name', 'ConstructionBarrier2', ...
+            'AssetType', 'JerseyBarrier', 'Length', 3.0, 'Width', 0.8, 'Height', 0.8, ...
+            'Position', [158.0, -1.75, 0.4], 'Yaw', 0, 'PlotColor', [0.95 0.45 0.10]);
+        actorMap.ConstructionBarrier2 = b2;
+    end
+
+    % Construction Worker walking near barriers
+    if isfield(entities, 'ConstructionWorker')
+        cw = actor(scenario, 'ClassID', 4, 'Name', 'ConstructionWorker', ...
+            'AssetType', 'MalePedestrian', 'Length', 0.28, ...
+            'Width', 0.45, 'Height', 1.75, 'PlotColor', [1.0 0.6 0.0]);
+        cwWps = [150.0, -0.80, 0.0; 160.0, -0.80, 0.0; 165.0, -0.80, 0.0];
+        trajectory(cw, cwWps, 0.4);
+        actorMap.ConstructionWorker = cw;
+    end
+
+    % Phase 3: Parked Truck (occludes jaywalker)
+    if isfield(entities, 'ParkedTruck')
+        ptData = entities.ParkedTruck;
+        pt = vehicle(scenario, 'ClassID', 2, 'Name', 'ParkedTruck', ...
+            'AssetType', 'BoxTruck', 'Length', ptData.Length, ...
+            'Width', ptData.Width, 'Height', ptData.Height, ...
+            'Position', [225.0, -5.25, 0.0], 'Yaw', 0, 'PlotColor', [0.4 0.3 0.2]);
+        actorMap.ParkedTruck = pt;
+    end
+
+    % Jaywalker crossing from behind parked truck
+    if isfield(entities, 'Jaywalker')
+        jw = actor(scenario, 'ClassID', 4, 'Name', 'Jaywalker', ...
+            'AssetType', 'MalePedestrian', 'Length', 0.28, ...
+            'Width', 0.45, 'Height', 1.75, 'PlotColor', [0.95 0.5 0.1]);
+        jwSpeed = getParam(params, 'Jaywalker_Speed', 1.5);
+        jwWps = [230.0, -7.0, 0.0; 230.0, -5.25, 0.0; 230.0, -1.75, 0.0; 230.0, 1.50, 0.0];
+        trajectory(jw, jwWps, jwSpeed);
+        actorMap.Jaywalker = jw;
+    end
+
+    % Oncoming Motorcycle (adds visual tension throughout)
+    if isfield(entities, 'OncomingBike')
+        obData = entities.OncomingBike;
+        ob = actor(scenario, 'ClassID', 3, 'Name', 'OncomingBike', ...
+            'AssetType', 'Bicyclist', 'Length', obData.Length, ...
+            'Width', obData.Width, 'Height', obData.Height, 'PlotColor', [0.6 0.2 0.8]);
+        obWps = [280.0, 1.75, 0.0; 10.0, 1.75, 0.0];
+        trajectory(ob, obWps, 11.11);
+        actorMap.OncomingBike = ob;
+    end
+end

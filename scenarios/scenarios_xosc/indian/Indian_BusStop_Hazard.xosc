@@ -1,0 +1,200 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OpenSCENARIO>
+  <FileHeader revMajor="1" revMinor="1" date="2026-09-30T00:00:00" description="Bus Stop with Alighting Passenger and Overtaking Motorcycle Hazard" author="SIH26 Autonomous Driving Team"/>
+  <ParameterDeclarations>
+    <ParameterDeclaration name="Ego_Speed" parameterType="double" value="6.94"/>       <!-- 25 km/h cruise -->
+    <ParameterDeclaration name="Bus_InitSpeed" parameterType="double" value="4.17"/>   <!-- 15 km/h bus approach -->
+  </ParameterDeclarations>
+  <CatalogLocations>
+    <VehicleCatalog><Directory path="../catalogs/vehicles"/></VehicleCatalog>
+  </CatalogLocations>
+  <RoadNetwork>
+    <LogicFile filepath="../../maps_xodr/Indian_Urban_Arterial.xodr"/>
+  </RoadNetwork>
+  <Entities>
+    <ScenarioObject name="Ego">
+      <Vehicle name="EgoVehicle" vehicleCategory="car">
+        <Dimensions width="1.80" length="4.50" height="1.48"/>
+        <Performance maxSpeed="55.5" maxAcceleration="6.0" maxDeceleration="9.0"/>
+        <BoundingBox><Center x="1.4" y="0.0" z="0.7"/><Dimension width="1.80" length="4.50" height="1.48"/></BoundingBox>
+        <Axles><FrontAxle maxSteering="0.5" wheelDiameter="0.6" trackWidth="1.55" positionX="2.8" positionZ="0.3"/>
+               <RearAxle maxSteering="0.0" wheelDiameter="0.6" trackWidth="1.55" positionX="0.0" positionZ="0.3"/></Axles>
+      </Vehicle>
+    </ScenarioObject>
+    <ScenarioObject name="CityBus">
+      <Vehicle name="BMTC_CityBus" vehicleCategory="truck">
+        <Dimensions width="2.55" length="11.50" height="3.30"/>
+        <Performance maxSpeed="25.0" maxAcceleration="2.0" maxDeceleration="5.0"/>
+        <BoundingBox><Center x="4.5" y="0.0" z="1.65"/><Dimension width="2.55" length="11.50" height="3.30"/></BoundingBox>
+        <Axles><FrontAxle maxSteering="0.4" wheelDiameter="1.0" trackWidth="2.05" positionX="7.5" positionZ="0.5"/>
+               <RearAxle maxSteering="0.0" wheelDiameter="1.0" trackWidth="2.05" positionX="0.0" positionZ="0.5"/></Axles>
+      </Vehicle>
+    </ScenarioObject>
+    <ScenarioObject name="AlightingPassenger">
+      <Pedestrian name="AlightingPassenger_Pedestrian" pedestrianCategory="pedestrian" mass="70.0">
+        <Dimensions width="0.45" length="0.28" height="1.75"/>
+        <BoundingBox><Center x="0.0" y="0.0" z="0.875"/><Dimension width="0.45" length="0.28" height="1.75"/></BoundingBox>
+      </Pedestrian>
+    </ScenarioObject>
+    <ScenarioObject name="OvertakingBike">
+      <Vehicle name="BajajPulsar_Bike" vehicleCategory="motorbike">
+        <Dimensions width="0.75" length="2.10" height="1.20"/>
+        <Performance maxSpeed="35.0" maxAcceleration="4.0" maxDeceleration="7.0"/>
+        <BoundingBox><Center x="0.7" y="0.0" z="0.6"/><Dimension width="0.75" length="2.10" height="1.20"/></BoundingBox>
+        <Axles><FrontAxle maxSteering="0.5" wheelDiameter="0.6" trackWidth="0.1" positionX="1.4" positionZ="0.3"/>
+               <RearAxle maxSteering="0.0" wheelDiameter="0.6" trackWidth="0.1" positionX="0.0" positionZ="0.3"/></Axles>
+      </Vehicle>
+    </ScenarioObject>
+    <ScenarioObject name="OncomingCar">
+      <Vehicle name="MarutiDzire_Car" vehicleCategory="car">
+        <Dimensions width="1.80" length="4.50" height="1.48"/>
+        <Performance maxSpeed="55.5" maxAcceleration="6.0" maxDeceleration="9.0"/>
+        <BoundingBox><Center x="1.4" y="0.0" z="0.7"/><Dimension width="1.80" length="4.50" height="1.48"/></BoundingBox>
+        <Axles><FrontAxle maxSteering="0.5" wheelDiameter="0.6" trackWidth="1.55" positionX="2.8" positionZ="0.3"/>
+               <RearAxle maxSteering="0.0" wheelDiameter="0.6" trackWidth="1.55" positionX="0.0" positionZ="0.3"/></Axles>
+      </Vehicle>
+    </ScenarioObject>
+  </Entities>
+  <Storyboard>
+    <Init>
+      <Actions>
+        <Private entityRef="Ego">
+          <PrivateAction><TeleportAction><Position><WorldPosition x="25.0" y="-1.75" z="0.0" h="0.0"/></Position></TeleportAction></PrivateAction>
+          <PrivateAction><LongitudinalAction><SpeedAction><SpeedActionDynamics dynamicsShape="step" value="0.0" dynamicsDimension="time"/><SpeedActionTarget><AbsoluteTargetSpeed value="$Ego_Speed"/></SpeedActionTarget></SpeedAction></LongitudinalAction></PrivateAction>
+        </Private>
+        <Private entityRef="CityBus">
+          <PrivateAction><TeleportAction><Position><WorldPosition x="110.0" y="-5.25" z="0.0" h="0.0"/></Position></TeleportAction></PrivateAction>
+          <PrivateAction><LongitudinalAction><SpeedAction><SpeedActionDynamics dynamicsShape="step" value="0.0" dynamicsDimension="time"/><SpeedActionTarget><AbsoluteTargetSpeed value="$Bus_InitSpeed"/></SpeedActionTarget></SpeedAction></LongitudinalAction></PrivateAction>
+        </Private>
+        <Private entityRef="AlightingPassenger">
+          <PrivateAction><TeleportAction><Position><WorldPosition x="108.0" y="-5.00" z="0.0" h="4.7124"/></Position></TeleportAction></PrivateAction>
+          <PrivateAction><LongitudinalAction><SpeedAction><SpeedActionDynamics dynamicsShape="step" value="0.0" dynamicsDimension="time"/><SpeedActionTarget><AbsoluteTargetSpeed value="0.0"/></SpeedActionTarget></SpeedAction></LongitudinalAction></PrivateAction>
+        </Private>
+        <Private entityRef="OvertakingBike">
+          <PrivateAction><TeleportAction><Position><WorldPosition x="75.0" y="-5.25" z="0.0" h="0.0"/></Position></TeleportAction></PrivateAction>
+          <PrivateAction><LongitudinalAction><SpeedAction><SpeedActionDynamics dynamicsShape="step" value="0.0" dynamicsDimension="time"/><SpeedActionTarget><AbsoluteTargetSpeed value="13.88"/></SpeedActionTarget></SpeedAction></LongitudinalAction></PrivateAction>
+        </Private>
+        <Private entityRef="OncomingCar">
+          <PrivateAction><TeleportAction><Position><WorldPosition x="230.0" y="1.75" z="0.0" h="3.14159"/></Position></TeleportAction></PrivateAction>
+          <PrivateAction><LongitudinalAction><SpeedAction><SpeedActionDynamics dynamicsShape="step" value="0.0" dynamicsDimension="time"/><SpeedActionTarget><AbsoluteTargetSpeed value="8.33"/></SpeedActionTarget></SpeedAction></LongitudinalAction></PrivateAction>
+        </Private>
+      </Actions>
+    </Init>
+    <Story name="BusStopHazardStory">
+      <Act name="BusStopHazardAct">
+        <ManeuverGroup maximumExecutionCount="1" name="ManeuverGroup_CityBus">
+          <Actors selectTriggeringEntities="false">
+            <EntityRef entityRef="CityBus"/>
+          </Actors>
+          <Maneuver name="Maneuver_BusDecelerate">
+            <Event name="BusDecelerateEvent" priority="overwrite">
+              <Action name="BusDecelerateAction">
+                <PrivateAction>
+                  <LongitudinalAction>
+                    <SpeedAction>
+                      <SpeedActionDynamics dynamicsShape="linear" value="3.0" dynamicsDimension="time"/>
+                      <SpeedActionTarget>
+                        <AbsoluteTargetSpeed value="0.0"/>
+                      </SpeedActionTarget>
+                    </SpeedAction>
+                  </LongitudinalAction>
+                </PrivateAction>
+              </Action>
+              <StartTrigger>
+                <ConditionGroup>
+                  <Condition name="BusDecelStartTime" delay="0" conditionEdge="rising">
+                    <ByValueCondition>
+                      <SimulationTimeCondition value="2.0" rule="greaterThan"/>
+                    </ByValueCondition>
+                  </Condition>
+                </ConditionGroup>
+              </StartTrigger>
+            </Event>
+          </Maneuver>
+        </ManeuverGroup>
+        <ManeuverGroup maximumExecutionCount="1" name="ManeuverGroup_OvertakingBike">
+          <Actors selectTriggeringEntities="false">
+            <EntityRef entityRef="OvertakingBike"/>
+          </Actors>
+          <Maneuver name="Maneuver_BikeOvertake">
+            <Event name="BikeOvertakeCutAcrossEvent" priority="overwrite">
+              <Action name="BikeCutAcrossLaneChange">
+                <PrivateAction>
+                  <LateralAction>
+                    <LaneChangeAction>
+                      <LaneChangeActionDynamics dynamicsShape="sinusoidal" value="1.5" dynamicsDimension="time"/>
+                      <LaneChangeTarget>
+                        <RelativeTargetLane entityRef="Ego" value="0"/>
+                      </LaneChangeTarget>
+                    </LaneChangeAction>
+                  </LateralAction>
+                </PrivateAction>
+              </Action>
+              <Action name="BikeMaintainSpeed">
+                <PrivateAction>
+                  <LongitudinalAction>
+                    <SpeedAction>
+                      <SpeedActionDynamics dynamicsShape="step" value="0.0" dynamicsDimension="time"/>
+                      <SpeedActionTarget>
+                        <AbsoluteTargetSpeed value="13.88"/>
+                      </SpeedActionTarget>
+                    </SpeedAction>
+                  </LongitudinalAction>
+                </PrivateAction>
+              </Action>
+              <StartTrigger>
+                <ConditionGroup>
+                  <Condition name="BikeOvertakeTime" delay="0" conditionEdge="rising">
+                    <ByValueCondition>
+                      <SimulationTimeCondition value="2.0" rule="greaterThan"/>
+                    </ByValueCondition>
+                  </Condition>
+                </ConditionGroup>
+              </StartTrigger>
+            </Event>
+          </Maneuver>
+        </ManeuverGroup>
+        <ManeuverGroup maximumExecutionCount="1" name="ManeuverGroup_AlightingPassenger">
+          <Actors selectTriggeringEntities="false">
+            <EntityRef entityRef="AlightingPassenger"/>
+          </Actors>
+          <Maneuver name="Maneuver_PassengerCross">
+            <Event name="PassengerWalkEvent" priority="overwrite">
+              <Action name="PassengerTurnNorthAction">
+                <PrivateAction>
+                  <TeleportAction>
+                    <Position>
+                      <WorldPosition x="108.0" y="-5.00" z="0.0" h="1.5707"/>
+                    </Position>
+                  </TeleportAction>
+                </PrivateAction>
+              </Action>
+              <Action name="PassengerWalkAction">
+                <PrivateAction>
+                  <LongitudinalAction>
+                    <SpeedAction>
+                      <SpeedActionDynamics dynamicsShape="linear" value="0.5" dynamicsDimension="time"/>
+                      <SpeedActionTarget>
+                        <AbsoluteTargetSpeed value="1.5"/>
+                      </SpeedActionTarget>
+                    </SpeedAction>
+                  </LongitudinalAction>
+                </PrivateAction>
+              </Action>
+              <StartTrigger>
+                <ConditionGroup>
+                  <Condition name="PassengerWalkStartTime" delay="0" conditionEdge="rising">
+                    <ByValueCondition>
+                      <SimulationTimeCondition value="6.0" rule="greaterThan"/>
+                    </ByValueCondition>
+                  </Condition>
+                </ConditionGroup>
+              </StartTrigger>
+            </Event>
+          </Maneuver>
+        </ManeuverGroup>
+      </Act>
+    </Story>
+    <StopTrigger/>
+  </Storyboard>
+</OpenSCENARIO>

@@ -28,6 +28,14 @@ classdef autonomous_ego_controller < handle
         lf = 1.2
         lr = 1.6
         
+        % Dynamic Strategic Trajectory Replanning
+        DynamicPlanner                      % Instance of dynamic_trajectory_planner
+        EnableDynamicReplanning = true      % Real-time dynamic replanning toggle
+        OriginalRouteWaypoints              % Pristine route reference waypoints
+        LastPlanTime = -1.0                 % Sim time of last plan step
+        PlanInterval = 0.10                 % 10 Hz replan interval (100 ms)
+        PlanInfo = struct()                 % Latest planning telemetry
+        
         % Internal State: [X (m), Y (m), Yaw (rad), Vx (m/s)]
         CurrentState = [0, 0, 0, 0]
         
@@ -52,6 +60,10 @@ classdef autonomous_ego_controller < handle
             if nargin >= 3 && ~isempty(controllerType), obj.ControllerType = char(controllerType); end
             if nargin >= 4 && ~isempty(cruiseSpeed), obj.CruiseSpeed = cruiseSpeed; end
             if nargin >= 5 && ~isempty(sampleTime), obj.Ts = sampleTime; end
+
+            % Initialize pristine route waypoints & SOTA Dynamic Replanner
+            obj.OriginalRouteWaypoints = obj.Waypoints;
+            obj.DynamicPlanner = dynamic_trajectory_planner(obj.CruiseSpeed, [-6.20, -0.60]);
 
             % Initialize Lateral Controller
             if strcmpi(obj.ControllerType, 'MPC')
@@ -114,6 +126,28 @@ classdef autonomous_ego_controller < handle
             obj.NumTracks = numTracks;
             obj.LastMinObstacleDist = minDist;
 
+            % 1.5. Dynamic Strategic Trajectory Replanning (@ 10 Hz / 100 ms)
+            % Continuously evaluates forward corridor for in-lane obstacles / hazards.
+            % Dynamically generates smooth, collision-free C^2 evasive trajectories to Lane -2 on our own side
+            % and updates active waypoints for MPC / Pure Pursuit with persistent lane commitment!
+            planInfo = struct('SelectedTargetY', obj.CurrentState(2), 'IsEvasive', false, 'LaneCommitted', false, 'TargetSpeed', obj.CruiseSpeed);
+            if obj.EnableDynamicReplanning && ~isempty(obj.DynamicPlanner) && ...
+               (scenarioTime - obj.LastPlanTime >= obj.PlanInterval - 1e-4)
+                obj.LastPlanTime = scenarioTime;
+                
+                % Feed current pose, route waypoints, fused tracks, and steer angle
+                [newWps, pInfo] = obj.DynamicPlanner.replan(...
+                    obj.CurrentState, obj.OriginalRouteWaypoints, fusedTracks, obj.LastSteering, scenarioTime);
+                
+                if ~isempty(newWps) && size(newWps, 1) >= 4
+                    obj.set_reference_trajectory(newWps, pInfo.TargetSpeed);
+                    planInfo = pInfo;
+                    obj.PlanInfo = pInfo;
+                end
+            elseif ~isempty(obj.PlanInfo) && isfield(obj.PlanInfo, 'IsEvasive')
+                planInfo = obj.PlanInfo;
+            end
+
             % 2. Longitudinal Control: First-Principles Kinematic ACC & AEB
             vx = obj.CurrentState(4);
             effClosingSpeed = max(vx, vClosing);
@@ -125,9 +159,23 @@ classdef autonomous_ego_controller < handle
                 ttc = Inf;
             end
 
+            isEvasive = (isfield(planInfo, 'IsEvasive') && planInfo.IsEvasive) || ...
+                        (isfield(planInfo, 'LaneCommitted') && planInfo.LaneCommitted);
+            isClearLaterally = (obj.CurrentState(2) < -3.4); % Vehicle already established in outer lane corridor
+
             if minDist <= obj.StopDistance || ttc < 1.4
-                % Standstill hold / critical emergency brake
+                % Critical Emergency Braking (AEB) - absolute contact guard
                 aCmd = obj.MaxDecel;
+            elseif isEvasive && ~isClearLaterally && minDist > 5.5
+                % Lateral evasion underway: maintain safe controlled evasion pace (16 km/h) while steering around
+                targetSpeed = min(obj.CruiseSpeed, 4.44); % 16 km/h steady evasion speed
+                speedErr = targetSpeed - vx;
+                aCmd = max(-2.5, min(1.0, 1.2 * speedErr));
+            elseif isEvasive && isClearLaterally
+                % Successfully transitioned into clear evasion corridor: cruise safely in Lane -2
+                dynamicTargetSpeed = obj.CruiseSpeed;
+                speedErr = dynamicTargetSpeed - vx;
+                aCmd = max(-2.5, min(obj.MaxAccel, 1.2 * speedErr));
             elseif minDist < obj.SafeDistance || ttc < 3.2
                 % First-principles kinematic stopping equation:
                 % v_f^2 = v_0^2 + 2 * a * d  =>  a_req = -v_0^2 / (2 * (d - d_stop))
@@ -138,42 +186,65 @@ classdef autonomous_ego_controller < handle
                 % Flank sensor detects cut-in vehicle entering lane: anticipate & yield smoothly
                 aCmd = -4.0;
             else
-                % Normal cruise control acceleration tracking target speed
-                speedErr = obj.CruiseSpeed - vx;
+                % Dynamic Curvature-Coupled Target Speed (replaces fixed straight-line cruise)
+                % When executing a lane change, detour, or curve, smoothly decelerate to maintain
+                % comfortable lateral acceleration (a_lat_max <= 1.5 m/s^2), then accelerate back out:
+                dists_curv = hypot(obj.Waypoints(:, 1) - obj.CurrentState(1), obj.Waypoints(:, 2) - obj.CurrentState(2));
+                [~, cIdx] = min(dists_curv);
+                N_wps = size(obj.Waypoints, 1);
+                i0 = max(1, cIdx - 3);
+                i2 = min(N_wps, cIdx + 3);
+                p0 = obj.Waypoints(i0, 1:2);
+                p1 = obj.Waypoints(cIdx, 1:2);
+                p2 = obj.Waypoints(i2, 1:2);
+                th1 = atan2(p1(2) - p0(2), p1(1) - p0(1));
+                th2 = atan2(p2(2) - p1(2), p2(1) - p1(1));
+                chord = max(0.5, hypot(p2(1) - p0(1), p2(2) - p0(2)));
+                curvNow = abs(wrapToPi(th2 - th1) / chord);
+
+                aLatMax = 1.5; % Comfortable lateral acceleration limit (m/s^2)
+                vCurvLimit = sqrt(aLatMax / max(1e-4, curvNow));
+                dynamicTargetSpeed = min(obj.CruiseSpeed, max(3.8, vCurvLimit));
+
+                speedErr = dynamicTargetSpeed - vx;
                 aCmd = max(-3.0, min(obj.MaxAccel, 1.2 * speedErr));
             end
             obj.LastAccel = aCmd;
 
-            % 3. Lateral Control: Compute Front Steering Angle Delta
+            % 3. Lateral Control: Compute Front Steering Angle Delta (Predictive PP or MPC)
             currentPose = obj.CurrentState(1:3); % [X, Y, Yaw]
             if strcmpi(obj.ControllerType, 'MPC')
                 [deltaCmd, targetPt, ey, epsi] = obj.LateralController.step(currentPose, vx);
             else
-                [deltaCmd, targetPt, ~] = obj.LateralController.step(currentPose, vx);
-                [ey, epsi] = obj.calc_lateral_error(currentPose(1), currentPose(2), currentPose(3));
+                [deltaCmd, targetPt, ~, ey, epsi] = obj.LateralController.step(currentPose, vx);
             end
             obj.LastSteering = deltaCmd;
 
-            % 4. Act: Vehicle Kinematic Bicycle Model State Update
+            % 4. Act: Vehicle Kinematic Bicycle Model State Update with Full 2D Velocity (Longitudinal & Lateral)
             Ts = obj.Ts;
             x = obj.CurrentState(1);
             y = obj.CurrentState(2);
             psi = obj.CurrentState(3);
 
-            % Sideslip angle beta
+            % Sideslip angle beta at vehicle CG
             beta = atan((obj.lr / obj.Wheelbase) * tan(deltaCmd));
             
-            % Continuous-to-discrete bicycle model integration
-            x_next = x + vx * cos(psi + beta) * Ts;
-            y_next = y + vx * sin(psi + beta) * Ts;
+            % Full 2D velocity vector in world frame (coupling longitudinal and lateral velocity)
+            VX = vx * cos(psi + beta);
+            VY = vx * sin(psi + beta);
+
+            % State integration
+            x_next = x + VX * Ts;
+            y_next = y + VY * Ts;
             psi_next = wrapToPi(psi + (vx / obj.Wheelbase) * cos(beta) * tan(deltaCmd) * Ts);
             vx_next = max(0.0, vx + aCmd * Ts);
 
             obj.CurrentState = [x_next, y_next, psi_next, vx_next];
 
             % 5. Write State Directly to Ego Actor in drivingScenario Memory
+            % Updates BOTH position and 2D velocity (longitudinal and lateral components)
             egoActor.Position = [x_next, y_next, 0.0];
-            egoActor.Velocity = [vx_next * cos(psi_next), vx_next * sin(psi_next), 0.0];
+            egoActor.Velocity = [vx_next * cos(psi_next + beta), vx_next * sin(psi_next + beta), 0.0];
             egoActor.Yaw = rad2deg(psi_next);
 
             % 6. Pack Comprehensive Telemetry Record
@@ -195,6 +266,7 @@ classdef autonomous_ego_controller < handle
             telemetry.CutInHazard = cutinHazard;
             telemetry.TTC = ttc;
             telemetry.Controller = obj.ControllerType;
+            telemetry.PlanInfo = planInfo;
             if ~isempty(obj.FusionBridge) && isprop(obj.FusionBridge, 'LatestCamDets')
                 telemetry.CamDets = obj.FusionBridge.LatestCamDets;
                 telemetry.RadDets = obj.FusionBridge.LatestRadDets;
@@ -208,17 +280,26 @@ classdef autonomous_ego_controller < handle
 
         function [ey, epsi] = calc_lateral_error(obj, x, y, psi)
             wps = obj.Waypoints;
+            N = size(wps, 1);
+            if N < 2
+                ey = 0; epsi = 0; return;
+            end
             dists = hypot(wps(:, 1) - x, wps(:, 2) - y);
             [~, idx] = min(dists);
-            N = size(wps, 1);
-            idx_next = mod(idx, N) + 1;
 
-            p1 = wps(idx, :);
-            p2 = wps(idx_next, :);
+            if idx >= N
+                p1 = wps(max(1, N - 1), 1:2);
+                p2 = wps(N, 1:2);
+                refPt = p2;
+            else
+                p1 = wps(idx, 1:2);
+                p2 = wps(idx + 1, 1:2);
+                refPt = p1;
+            end
             tangentYaw = atan2(p2(2) - p1(2), p2(1) - p1(1));
 
-            dx = x - p1(1);
-            dy = y - p1(2);
+            dx = x - refPt(1);
+            dy = y - refPt(2);
             ey = -sin(tangentYaw)*dx + cos(tangentYaw)*dy;
             epsi = wrapToPi(psi - tangentYaw);
         end

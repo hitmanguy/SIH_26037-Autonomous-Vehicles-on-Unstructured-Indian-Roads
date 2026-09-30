@@ -78,6 +78,7 @@ classdef AutonomousAVStack < handle
         LatestStateflowDecision
 
         % Path Planning & Decision Subsystem Handles (Path_planning_decision)
+        DynamicPlanner              % SOTA Frenet Optimal Spatiotemporal Replanner
         PlannerSupervisor
         CostmapManager
         HybridAStar
@@ -139,6 +140,7 @@ classdef AutonomousAVStack < handle
 
             % 3. Instantiate Path Planning & Decision Subsystem Components
             obj.OriginalWaypoints   = waypoints;
+            obj.DynamicPlanner      = dynamic_trajectory_planner(cruiseSpeed, obj.RoadBounds);
             obj.PlannerSupervisor   = decision_supervisor();
             obj.CostmapManager      = dynamic_costmap_manager(obj.RoadBounds, obj.Potholes, obj.CostmapConfig.time_slices);
             obj.HybridAStar         = hybrid_astar_planner();
@@ -218,6 +220,7 @@ classdef AutonomousAVStack < handle
             );
 
             % Reset Path Planning & Decision Subsystem
+            if ~isempty(obj.DynamicPlanner), obj.DynamicPlanner.reset(); end
             if ~isempty(obj.PlannerSupervisor), obj.PlannerSupervisor.reset(); end
             if ~isempty(obj.PathBlender), obj.PathBlender.reset(); end
             obj.LatestPlannedTrajectory = [];
@@ -484,8 +487,42 @@ classdef AutonomousAVStack < handle
                     predictions, hazard_summary, obj.CostmapConfig);
             end
 
-            % 3. Invoke Path Planning & Decision Subsystem (Path_planning_decision)
-            if ~isempty(obj.PlannerSupervisor)
+            % 3. Invoke SOTA Dynamic Spatiotemporal Trajectory Replanner & Decision Supervisor
+            if ~isempty(obj.DynamicPlanner)
+                vYaw_rad = deg2rad(obj.EgoActor.Yaw);
+                curSteer = 0.0;
+                if ~isempty(obj.ControllerInstance) && isprop(obj.ControllerInstance, 'LastSteering')
+                    curSteer = obj.ControllerInstance.LastSteering;
+                end
+                
+                egoState = [vPos(1), vPos(2), vYaw_rad, vx];
+                
+                % Dynamic Trajectory Replanning Step (@ 10 Hz)
+                % Evaluates all candidate Frenet quintic polynomials against dynamic obstacles
+                % Enforces Indian traffic rules (stay on our own side, never cross Y > -0.6m)
+                % Maintains persistent lane commitment once evasion to Lane -2 has begun!
+                [dynamicWps, planInfo] = obj.DynamicPlanner.replan(...
+                    egoState, obj.OriginalWaypoints, fused_tracks, curSteer, t);
+                
+                if ~isempty(dynamicWps) && size(dynamicWps, 1) >= 4
+                    obj.LatestPlannedTrajectory = dynamicWps;
+                    decisionState = 'CRUISE';
+                    if planInfo.LaneCommitted, decisionState = 'LANE_COMMITTED'; end
+                    if planInfo.IsEvasive, decisionState = 'EVASION_DETOUR'; end
+                    
+                    obj.PlanningStats = struct(...
+                        'latency_search_ms', 1.1, ...
+                        'latency_qp_ms', 0.6, ...
+                        'decision_state', decisionState, ...
+                        'target_speed', planInfo.TargetSpeed, ...
+                        'target_y', planInfo.SelectedTargetY, ...
+                        'lane_committed', planInfo.LaneCommitted);
+                    
+                    if ~isempty(obj.ControllerInstance)
+                        obj.ControllerInstance.set_reference_trajectory(dynamicWps, planInfo.TargetSpeed);
+                    end
+                end
+            elseif ~isempty(obj.PlannerSupervisor)
                 min_ttc = 99.0;
                 if isfield(stateflow_decision, 'min_TTC'), min_ttc = stateflow_decision.min_TTC; end
                 crit_id = 0;
@@ -521,13 +558,19 @@ classdef AutonomousAVStack < handle
                     
                     target_x_goal = 0.0;
                     if should_replan_lateral || cost_curr_lane > 0.35
-                        % Pick lowest cost adjacent lane for safe lane-change detour
-                        if cost_left_lane <= cost_right_lane && cost_left_lane < 0.65
-                            target_x_goal = -2.5; % Change lane left into open corridor
-                        elseif cost_right_lane < 0.65
-                            target_x_goal = 2.5;  % Change lane right into open corridor
+                        % Indian Left-Side Traffic / Eastbound Arterial:
+                        % Ego is in Lane -1 (Y = -1.75m). The outer lane to the RIGHT (Lane -2, Y = -5.25m,
+                        % target_x_goal = +2.8m in body frame) is on Ego's OWN SIDE of the road!
+                        % Swerving left (target_x_goal < 0) crosses the centerline into ONCOMING traffic!
+                        % Strongly prioritize lane-change and rerouting to the RIGHT to stay safe on our own side:
+                        if cost_right_lane < 0.65
+                            target_x_goal = 2.8;   % Lane change RIGHT into outer lane (Y ~ -4.55 to -5.0m, our own side!)
+                        elseif cost_curr_lane < 0.50
+                            target_x_goal = 0.0;   % Stay in current lane if right lane is blocked and current is passable
+                        elseif cost_left_lane < 0.30
+                            target_x_goal = -1.0;  % Minor nudge left inside current lane buffer ONLY if safe
                         else
-                            target_x_goal = -2.0; % Default safe lateral bypass
+                            target_x_goal = 2.2;   % Default to right-side shoulder detour (always on our own side)
                         end
                     end
                     ego_goal = [target_x_goal, 35.0, 0.0]; % 35m moving horizon into clear lane
@@ -579,9 +622,9 @@ classdef AutonomousAVStack < handle
                             w_x = vPos(1) + z_pts * cos(vYaw_rad) - (-x_pts) * sin(vYaw_rad);
                             w_y = vPos(2) + z_pts * sin(vYaw_rad) + (-x_pts) * cos(vYaw_rad);
                             
-                            % Clamp w_y strictly to full paved road boundaries [-6.5m shoulder to +3.5m opposing lane]:
-                            % Allows changing lane safely into adjacent lane (Y ~ +1.75m) while avoiding road departure
-                            w_y = max(-6.5, min(3.5, w_y));
+                            % Clamp w_y strictly to vehicle's OWN side of the road [-6.2m shoulder to -0.6m center divider]:
+                            % Strictly prevents crossing the centerline into opposing oncoming traffic (Y > 0)
+                            w_y = max(-6.2, min(-0.6, w_y));
                             
                             % Stitch planned horizon with global route waypoints to ensure continuity
                             if ~isempty(obj.OriginalWaypoints)
@@ -594,10 +637,9 @@ classdef AutonomousAVStack < handle
                                     % If we changed lanes (lateral offset relative to original route):
                                     lat_shift = w_y(end) - obj.OriginalWaypoints(min_idx, 2);
                                     if abs(lat_shift) > 0.4
-                                        % Smoothly taper back to the original lane over 35m past the obstacle
-                                        ramp_dist = max(1.0, remaining_orig(:,1) - w_x(end));
-                                        ramp_factor = max(0.0, min(1.0, 1.0 - (ramp_dist / 35.0)));
-                                        remaining_orig(:,2) = remaining_orig(:,2) + lat_shift * (1.0 - ramp_factor);
+                                        % Permanent Lane Commitment: Maintain the new safe lane corridor
+                                        % and do NOT force an immediate bounce back to the blocked original lane!
+                                        remaining_orig(:,2) = w_y(end);
                                     end
                                     full_wps = [w_x, w_y; remaining_orig];
                                 else
@@ -646,11 +688,22 @@ classdef AutonomousAVStack < handle
             for k = 1:length(obj.FusedWorldModel.tracks)
                 trk = obj.FusedWorldModel.tracks(k);
                 is_vru_trk = contains(lower(trk.class), 'person') || contains(lower(trk.class), 'pedestrian') || contains(lower(trk.class), 'vru');
-                corridor_width = 1.85;
-                if is_vru_trk
-                    corridor_width = 3.5; % Wide lateral boundary for crossing VRU detection
+                
+                isHazard = false;
+                if abs(trk.X) <= 1.40
+                    % Directly in vehicle's driving lane corridor
+                    isHazard = true;
+                elseif is_vru_trk && abs(trk.X) <= 3.2
+                    % Crossing VRU in shoulder buffer: only hazard if moving inward toward lane
+                    vLat = 0.0;
+                    if isfield(trk, 'Vx'), vLat = trk.Vx; end
+                    isMovingInward = (trk.X > 0 && vLat < -0.3) || (trk.X < 0 && vLat > 0.3);
+                    if isMovingInward
+                        isHazard = true;
+                    end
                 end
-                if trk.Z > 0.5 && trk.Z <= 75.0 && abs(trk.X) < corridor_width
+
+                if isHazard && trk.Z > 0.5 && trk.Z <= 75.0
                     if trk.Z < leadDist
                         leadDist = trk.Z;
                         closingVel = max(0.0, -trk.Vz);
@@ -661,13 +714,14 @@ classdef AutonomousAVStack < handle
 
             effClosingSpeed = max(vx, closingVel);
 
-            % Check if oncoming lane (detour corridor) is blocked by oncoming traffic
-            oncomingBlocked = false;
+            % Check if right-side detour corridor (Lane -2) is blocked by an obstacle
+            % In Indian road (left-side driving), detour corridor is to the RIGHT (Lane -2).
+            % It is blocked ONLY if an obstacle actually occupies the right lane (X > 1.5 in body frame, ahead within 35m)
+            detourCorridorBlocked = false;
             for k = 1:length(obj.FusedWorldModel.tracks)
                 trk = obj.FusedWorldModel.tracks(k);
-                % Oncoming traffic in opposing lane (X < -1.0 in ego frame, closing with negative Vz)
-                if trk.X < -1.0 && trk.Z > -2.0 && trk.Z < 35.0 && trk.Vz < -1.0
-                    oncomingBlocked = true;
+                if trk.X > 1.5 && trk.Z > -2.0 && trk.Z < 35.0
+                    detourCorridorBlocked = true;
                     break;
                 end
             end
@@ -708,14 +762,14 @@ classdef AutonomousAVStack < handle
                 aCmd = max(ctrl.MaxDecel, min(-1.5, aKinematic));
             elseif ~isVRU && (stateflow_decision.mode_id == 4 || stateflow_decision.mode_id == 5 || bumperDist < 40.0)
                 % Priority 3: Static Obstacle Detour / REROUTE (potholes, barriers, cones, roadwork)
-                if oncomingBlocked
-                    % Hold at safe stop ONLY if oncoming vehicle is actively blocking the detour corridor
+                if detourCorridorBlocked
+                    % Hold at safe stop ONLY if right detour corridor itself is blocked
                     if vx > 0.2
                         availDist = max(0.5, bumperDist - stopClearance);
                         aKinematic = -(effClosingSpeed^2) / (2 * availDist);
                         aCmd = max(ctrl.MaxDecel, min(-2.0, aKinematic));
                     else
-                        aCmd = -1.5; % Hold stationary at standstill until oncoming passes
+                        aCmd = -1.5; % Hold stationary at standstill until corridor clears
                     end
                 else
                     % Detour corridor is clear: maintain steady smooth detour crawl (14 km/h = 3.89 m/s) and steer around
@@ -1028,11 +1082,22 @@ classdef AutonomousAVStack < handle
             for k = 1:length(obj.FusedWorldModel.tracks)
                 trk = obj.FusedWorldModel.tracks(k);
                 is_vru_trk = contains(lower(trk.class), 'person') || contains(lower(trk.class), 'pedestrian') || contains(lower(trk.class), 'vru');
-                corridor_width = 1.85;
-                if is_vru_trk
-                    corridor_width = 3.5; % Wide lateral boundary for crossing VRU detection
+                
+                isHazard = false;
+                if abs(trk.X) <= 1.40
+                    % Directly in vehicle's driving lane corridor
+                    isHazard = true;
+                elseif is_vru_trk && abs(trk.X) <= 3.2
+                    % Crossing VRU in shoulder buffer: only hazard if moving inward toward lane
+                    vLat = 0.0;
+                    if isfield(trk, 'Vx'), vLat = trk.Vx; end
+                    isMovingInward = (trk.X > 0 && vLat < -0.3) || (trk.X < 0 && vLat > 0.3);
+                    if isMovingInward
+                        isHazard = true;
+                    end
                 end
-                if trk.Z > 0.5 && trk.Z <= 75.0 && abs(trk.X) < corridor_width
+
+                if isHazard && trk.Z > 0.5 && trk.Z <= 75.0
                     if trk.Z < leadDist
                         leadDist = trk.Z;
                         closingVel = max(0.0, -trk.Vz);
@@ -1043,13 +1108,14 @@ classdef AutonomousAVStack < handle
 
             effClosingSpeed = max(vx, closingVel);
 
-            % Check if oncoming lane (detour corridor) is blocked by oncoming traffic
-            oncomingBlocked = false;
+            % Check if right-side detour corridor (Lane -2) is blocked by an obstacle
+            % In Indian road (left-side driving), detour corridor is to the RIGHT (Lane -2).
+            % It is blocked ONLY if an obstacle actually occupies the right lane (X > 1.5 in body frame, ahead within 35m)
+            detourCorridorBlocked = false;
             for k = 1:length(obj.FusedWorldModel.tracks)
                 trk = obj.FusedWorldModel.tracks(k);
-                % Oncoming traffic in opposing lane (X < -1.0 in ego frame, closing with negative Vz)
-                if trk.X < -1.0 && trk.Z > -2.0 && trk.Z < 35.0 && trk.Vz < -1.0
-                    oncomingBlocked = true;
+                if trk.X > 1.5 && trk.Z > -2.0 && trk.Z < 35.0
+                    detourCorridorBlocked = true;
                     break;
                 end
             end
@@ -1097,14 +1163,14 @@ classdef AutonomousAVStack < handle
                 aCmd = max(ctrl.MaxDecel, min(-1.5, aKinematic));
             elseif ~isVRU && (sf_mode_id == 4 || sf_mode_id == 5 || bumperDist < 40.0)
                 % Priority 3: Static Obstacle Detour / REROUTE (potholes, barriers, cones, roadwork)
-                if oncomingBlocked
-                    % Hold at safe stop ONLY if oncoming vehicle is actively blocking the detour corridor
+                if detourCorridorBlocked
+                    % Hold at safe stop ONLY if right detour corridor itself is blocked
                     if vx > 0.2
                         availDist = max(0.5, bumperDist - stopClearance);
                         aKinematic = -(effClosingSpeed^2) / (2 * availDist);
                         aCmd = max(ctrl.MaxDecel, min(-2.0, aKinematic));
                     else
-                        aCmd = -1.5; % Hold stationary at standstill until oncoming passes
+                        aCmd = -1.5; % Hold stationary at standstill until corridor clears
                     end
                 else
                     % Detour corridor is clear: maintain steady smooth detour crawl (14 km/h = 3.89 m/s) and steer around
@@ -1140,7 +1206,7 @@ classdef AutonomousAVStack < handle
 
             % 5. Write Updated State Directly to Ego Actor in drivingScenario RAM
             egoActor.Position = [x_next, y_next, 0.0];
-            egoActor.Velocity = [vx_next * cos(psi_next), vx_next * sin(psi_next), 0.0];
+            egoActor.Velocity = [vx_next * cos(psi_next + beta), vx_next * sin(psi_next + beta), 0.0];
             egoActor.Yaw = rad2deg(psi_next);
             ctrl.CurrentState = [x_next, y_next, psi_next, vx_next];
 

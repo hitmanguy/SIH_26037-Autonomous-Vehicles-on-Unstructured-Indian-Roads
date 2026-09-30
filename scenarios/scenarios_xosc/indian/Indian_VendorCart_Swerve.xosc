@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OpenSCENARIO>
+  <FileHeader revMajor="1" revMinor="1" date="2026-09-30T00:00:00" description="Street Vendor Handcart Swerving into Ego Lane" author="SIH26 Autonomous Driving Team"/>
+  <ParameterDeclarations>
+    <ParameterDeclaration name="Ego_Speed" parameterType="double" value="6.94"/>
+    <ParameterDeclaration name="Cart_Speed" parameterType="double" value="1.5"/>
+  </ParameterDeclarations>
+  <CatalogLocations>
+    <VehicleCatalog><Directory path="../catalogs/vehicles"/></VehicleCatalog>
+  </CatalogLocations>
+  <RoadNetwork>
+    <LogicFile filepath="../../maps_xodr/Indian_Urban_Arterial.xodr"/>
+  </RoadNetwork>
+  <Entities>
+    <ScenarioObject name="Ego">
+      <Vehicle name="EgoVehicle" vehicleCategory="car">
+        <Dimensions width="1.80" length="4.50" height="1.48"/>
+        <Performance maxSpeed="55.5" maxAcceleration="6.0" maxDeceleration="9.0"/>
+        <BoundingBox><Center x="1.4" y="0.0" z="0.7"/><Dimension width="1.80" length="4.50" height="1.48"/></BoundingBox>
+        <Axles><FrontAxle maxSteering="0.5" wheelDiameter="0.6" trackWidth="1.55" positionX="2.8" positionZ="0.3"/>
+               <RearAxle maxSteering="0.0" wheelDiameter="0.6" trackWidth="1.55" positionX="0.0" positionZ="0.3"/></Axles>
+      </Vehicle>
+    </ScenarioObject>
+    <ScenarioObject name="VendorCart">
+      <MiscObject name="StreetVendorCart" miscObjectCategory="obstacle" mass="80.0">
+        <Dimensions width="1.20" length="1.80" height="1.10"/>
+        <BoundingBox><Center x="0.9" y="0.0" z="0.55"/><Dimension width="1.20" length="1.80" height="1.10"/></BoundingBox>
+      </MiscObject>
+    </ScenarioObject>
+    <ScenarioObject name="OncomingBus">
+      <Vehicle name="KSRTC_Bus" vehicleCategory="truck">
+        <Dimensions width="2.45" length="7.80" height="3.20"/>
+        <Performance maxSpeed="25.0" maxAcceleration="2.0" maxDeceleration="5.0"/>
+        <BoundingBox><Center x="2.5" y="0.0" z="1.6"/><Dimension width="2.45" length="7.80" height="3.20"/></BoundingBox>
+        <Axles><FrontAxle maxSteering="0.4" wheelDiameter="1.0" trackWidth="2.0" positionX="5.2" positionZ="0.5"/>
+               <RearAxle maxSteering="0.0" wheelDiameter="1.0" trackWidth="2.0" positionX="0.0" positionZ="0.5"/></Axles>
+      </Vehicle>
+    </ScenarioObject>
+    <ScenarioObject name="ParkedCar">
+      <Vehicle name="ParkedSedan" vehicleCategory="car">
+        <Dimensions width="1.80" length="4.50" height="1.48"/>
+        <Performance maxSpeed="55.5" maxAcceleration="6.0" maxDeceleration="9.0"/>
+        <BoundingBox><Center x="1.4" y="0.0" z="0.7"/><Dimension width="1.80" length="4.50" height="1.48"/></BoundingBox>
+        <Axles><FrontAxle maxSteering="0.5" wheelDiameter="0.6" trackWidth="1.55" positionX="2.8" positionZ="0.3"/>
+               <RearAxle maxSteering="0.0" wheelDiameter="0.6" trackWidth="1.55" positionX="0.0" positionZ="0.3"/></Axles>
+      </Vehicle>
+    </ScenarioObject>
+    <ScenarioObject name="CurbPedestrian">
+      <Pedestrian name="CurbWalker" pedestrianCategory="pedestrian" mass="70.0">
+        <Dimensions width="0.45" length="0.28" height="1.75"/>
+        <BoundingBox><Center x="0.0" y="0.0" z="0.875"/><Dimension width="0.45" length="0.28" height="1.75"/></BoundingBox>
+      </Pedestrian>
+    </ScenarioObject>
+  </Entities>
+  <Storyboard>
+    <Init>
+      <Actions>
+        <Private entityRef="Ego">
+          <PrivateAction><TeleportAction><Position><WorldPosition x="25.0" y="-1.75" z="0.0" h="0.0"/></Position></TeleportAction></PrivateAction>
+          <PrivateAction><LongitudinalAction><SpeedAction><SpeedActionDynamics dynamicsShape="step" value="0.0" dynamicsDimension="time"/><SpeedActionTarget><AbsoluteTargetSpeed value="$Ego_Speed"/></SpeedActionTarget></SpeedAction></LongitudinalAction></PrivateAction>
+        </Private>
+        <Private entityRef="VendorCart">
+          <PrivateAction><TeleportAction><Position><WorldPosition x="105.0" y="-5.80" z="0.0" h="0.0"/></Position></TeleportAction></PrivateAction>
+          <PrivateAction><LongitudinalAction><SpeedAction><SpeedActionDynamics dynamicsShape="step" value="0.0" dynamicsDimension="time"/><SpeedActionTarget><AbsoluteTargetSpeed value="$Cart_Speed"/></SpeedActionTarget></SpeedAction></LongitudinalAction></PrivateAction>
+        </Private>
+        <Private entityRef="OncomingBus">
+          <PrivateAction><TeleportAction><Position><WorldPosition x="250.0" y="1.75" z="0.0" h="3.14159"/></Position></TeleportAction></PrivateAction>
+          <PrivateAction><LongitudinalAction><SpeedAction><SpeedActionDynamics dynamicsShape="step" value="0.0" dynamicsDimension="time"/><SpeedActionTarget><AbsoluteTargetSpeed value="11.11"/></SpeedActionTarget></SpeedAction></LongitudinalAction></PrivateAction>
+        </Private>
+        <Private entityRef="ParkedCar">
+          <PrivateAction><TeleportAction><Position><WorldPosition x="130.0" y="-5.50" z="0.0" h="0.0"/></Position></TeleportAction></PrivateAction>
+          <PrivateAction><LongitudinalAction><SpeedAction><SpeedActionDynamics dynamicsShape="step" value="0.0" dynamicsDimension="time"/><SpeedActionTarget><AbsoluteTargetSpeed value="0.0"/></SpeedActionTarget></SpeedAction></LongitudinalAction></PrivateAction>
+        </Private>
+        <Private entityRef="CurbPedestrian">
+          <PrivateAction><TeleportAction><Position><WorldPosition x="100.0" y="-6.80" z="0.0" h="0.0"/></Position></TeleportAction></PrivateAction>
+          <PrivateAction><LongitudinalAction><SpeedAction><SpeedActionDynamics dynamicsShape="step" value="0.0" dynamicsDimension="time"/><SpeedActionTarget><AbsoluteTargetSpeed value="0.8"/></SpeedActionTarget></SpeedAction></LongitudinalAction></PrivateAction>
+        </Private>
+      </Actions>
+    </Init>
+    <Story name="VendorCartSwerveStory">
+      <Act name="VendorCartSwerveAct">
+        <ManeuverGroup maximumExecutionCount="1" name="ManeuverGroup_VendorCart">
+          <Actors selectTriggeringEntities="false"><EntityRef entityRef="VendorCart"/></Actors>
+          <Maneuver name="Maneuver_CartSwerve">
+            <Event name="CartSwerveEvent" priority="overwrite">
+              <Action name="CartSwerveLaneChange">
+                <PrivateAction>
+                  <LateralAction>
+                    <LaneChangeAction>
+                      <LaneChangeActionDynamics dynamicsShape="sinusoidal" value="2.0" dynamicsDimension="time"/>
+                      <LaneChangeTarget><RelativeTargetLane entityRef="Ego" value="0"/></LaneChangeTarget>
+                    </LaneChangeAction>
+                  </LateralAction>
+                </PrivateAction>
+              </Action>
+              <StartTrigger>
+                <ConditionGroup>
+                  <Condition name="TimeCondition" delay="0" conditionEdge="rising">
+                    <ByValueCondition><SimulationTimeCondition value="5.0" rule="greaterThan"/></ByValueCondition>
+                  </Condition>
+                </ConditionGroup>
+              </StartTrigger>
+            </Event>
+          </Maneuver>
+        </ManeuverGroup>
+      </Act>
+    </Story>
+    <StopTrigger/>
+  </Storyboard>
+</OpenSCENARIO>
