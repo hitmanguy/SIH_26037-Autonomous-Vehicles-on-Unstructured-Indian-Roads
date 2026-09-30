@@ -1,5 +1,4 @@
 % STARTUP Automatically adds modular project directories to MATLAB path
-% Smart India Hackathon (SIH) 2026 - Problem Statement 26037
 projectDir = fileparts(mfilename('fullpath'));
 if isempty(projectDir), projectDir = pwd; end
 
