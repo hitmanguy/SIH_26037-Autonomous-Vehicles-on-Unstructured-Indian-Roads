@@ -1292,18 +1292,23 @@ function [scenario, actorMap] = setup_indian_pothole_scenario(scenario, entities
     if enableAEB
         % Ego cruises steadily at 25 km/h, encounters barrier/deep pothole at X=85m,
         % detects obstacle in advance, decelerates smoothly to safe detour crawl (14 km/h),
-        % smoothly detours left (Y = +0.25m) around barrier into clear lane, and merges back!
+        % executes smooth sinusoidal lane change into clear adjacent lane (Y = +1.75m),
+        % and merges cleanly back into original driving lane with zero spline overshoot!
         egoWaypoints = [
-            25.0,  -1.75, 0.0;   % t = 0.0s (cruise at 25 km/h)
-            55.0,  -1.75, 0.0;   % t = 4.3s (detects barrier ahead at X=85m, begins smooth deceleration)
-            70.0,  -0.50, 0.0;   % t = 7.0s (smooth lane change into clear adjacent lane)
-            85.0,   1.00, 0.0;   % t = 10.5s (centered safely in adjacent lane past barrier at 14 km/h)
-            95.0,   1.00, 0.0;   % t = 13.0s (clears barrier envelope in adjacent lane)
-            115.0, -1.75, 0.0;   % t = 17.0s (smoothly merges back into original driving lane)
-            135.0, -1.75, 0.0;   % t = 22.0s (traverses shallow dip at capped speed <= 15 km/h)
-            280.0, -1.75, 0.0    % exits road
+            25.0,  -1.75, 0.0;   % Straight cruise in original lane
+            50.0,  -1.75, 0.0;   % Detects barrier ahead, begins deceleration
+            65.0,  -0.85, 0.0;   % Smooth S-curve transition toward adjacent lane
+            75.0,   0.85, 0.0;   % Crossing centerline smoothly
+            85.0,   1.75, 0.0;   % Centered in adjacent lane past barrier at 14 km/h
+            95.0,   1.75, 0.0;   % Clear of barrier envelope
+            105.0,  0.85, 0.0;   % Smooth transition returning to lane 1
+            115.0, -0.85, 0.0;   % Crossing centerline back to lane 1
+            130.0, -1.75, 0.0;   % Re-centered cleanly in original lane
+            160.0, -1.75, 0.0;   % Straight lane-keeping anchor
+            200.0, -1.75, 0.0;   % Straight lane-keeping anchor
+            280.0, -1.75, 0.0    % Exits road
         ];
-        egoSpeeds = [egoSpeed, egoSpeed * 0.85, 4.0, 3.89, 3.89, 4.0, 3.89, egoSpeed];
+        egoSpeeds = [egoSpeed, egoSpeed, 4.0, 3.89, 3.89, 3.89, 3.89, 4.0, egoSpeed, egoSpeed, egoSpeed, egoSpeed];
     else
         egoWaypoints = [25.0, -1.75, 0.0; 280.0, -1.75, 0.0];
         egoSpeeds = [egoSpeed, egoSpeed];

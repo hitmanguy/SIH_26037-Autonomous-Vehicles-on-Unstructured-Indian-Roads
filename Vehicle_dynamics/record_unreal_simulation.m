@@ -518,7 +518,7 @@ function dense = interpolate_waypoints(pts, ds)
     totalLen = sCum(end);
     if totalLen < ds, dense = pts; return; end
     sQuery = (0:ds:totalLen)';
-    xDense = interp1(sCum, pts(:, 1), sQuery, 'spline');
-    yDense = interp1(sCum, pts(:, 2), sQuery, 'spline');
+    xDense = interp1(sCum, pts(:, 1), sQuery, 'pchip');
+    yDense = interp1(sCum, pts(:, 2), sQuery, 'pchip');
     dense = [xDense, yDense];
 end
