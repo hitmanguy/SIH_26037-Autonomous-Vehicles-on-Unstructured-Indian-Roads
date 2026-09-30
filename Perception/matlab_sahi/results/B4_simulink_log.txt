@@ -1,0 +1,62 @@
+A3 SAHI Block 4 Simulink  (29-Sep-2026 23:43:02, MATLAB 2025b)
+
+Model built and saved: D:\SIH\work\A3_sahi\B4_simulink\sahi_B4_demo.slx
+Simulated 2.0 s of model time in 28.7 s wall time (0.07x real time)
+
+Fast loop steps: 61 (full-frame count per step: min 7, max 42)
+Slow loop ticks: 11 at t = [0 0.2 0.4 0.6 0.8 1 1.2 1.4 1.6 1.8 2]
+Output sizes per tick: boxes [128 4], scores [128 1], labels [128 1] (fixed, N = 128)
+
+    t  frame  count    direct   matched  min IoU sahiOnly  overflow
+  0.0      1      8         8         8   0.5514        1         0  ok
+  0.2      1      8         8         8   0.5514        1         0  ok
+  0.4      1      8         8         8   0.5514        1         0  ok
+  0.6      2     62        62        62   0.9135       18         0  ok
+  0.8      2     62        62        62   0.9135       18         0  ok
+  1.0      3      9         9         9   0.9920        2         0  ok
+  1.2      3      9         9         9   0.9920        2         0  ok
+  1.4      3      9         9         9   0.9920        2         0  ok
+  1.6      4      9         9         9   0.9932        1         0  ok
+  1.8      4      9         9         9   0.9932        1         0  ok
+  2.0      1      8         8         8   0.5514        1         0  ok
+
+Simulink output identical to direct sahiDetect: true
+
+=== Code-generation screening of sahiDetect ===
+  - Call site "vision.internal.detector.ObjectDetector" is unsupported for code generation. ()
+  - Call site "yolov8ObjectDetector.checkThreshold" is unsupported for code generation. ()
+  - Call site "performDetect" is unsupported for code generation. ()
+  - Call site "canUseGPU" is unsupported for code generation. ()
+  - Call site "canUseGPU" is unsupported for code generation. ()
+  - Call site "canUseGPU" is unsupported for code generation. ()
+  - Call site "dlnetwork" is unsupported for code generation. ()
+  - Call site "dlnetwork" is unsupported for code generation. ()
+  - Call site "getExampleInputs" is unsupported for code generation. ()
+  - Call site "gpuArray" is unsupported for code generation. ()
+  - Call site "gpuArray" is unsupported for code generation. ()
+  - Call site "gpuArray" is unsupported for code generation. ()
+  - Call site "imageInputLayer" is unsupported for code generation. ()
+  - Call site "imageInputLayer" is unsupported for code generation. ()
+  - Call site "vision.internal.requiresNeuralToolbox" is unsupported for code generation. ()
+  - Call site "vision.internal.requiresNeuralToolbox" is unsupported for code generation. ()
+  - Call site "throwAsCaller" is unsupported for code generation. ()
+  - Call site "throwAsCaller" is unsupported for code generation. ()
+  - Call site "nnet.internal.cnn.DataLoader" is unsupported for code generation. ()
+  - Call site "MException" is unsupported for code generation. ()
+  - Call site "vision.internal.cnn.validation.checkDetectionInputDatastore" is unsupported for code generation. ()
+  - Call site "vision.internal.cnn.validation.checkDetectionInputImage" is unsupported for code generation. ()
+  - Call site "containers.Map" is unsupported for code generation. ()
+  - Call site "convertContainedStringsToChars" is unsupported for code generation. ()
+  - Call site "convolution2dLayer" is unsupported for code generation. ()
+  - Call site "vision.getMessage" is unsupported for code generation. ()
+  - Call site "hasdata" is unsupported for code generation. ()
+  - Call site "isgpuarray" is unsupported for code generation. ()
+  - Call site "rethrow" is unsupported for code generation. ()
+  - Call site "websave" is unsupported for code generation. ()
+  - TRY/CATCH is unsupported for code generation. ()
+  - TRY/CATCH is unsupported for code generation. ()
+  - Code generation only supports growing the size of an array through 'end + 1' indexing. ()
+  - Code generation only supports growing the size of an array through 'end + 1' indexing. ()
+  - Code generation only supports growing the size of an array through 'end + 1' indexing. ()
+
+Saved D:\SIH\work\A3_sahi\B4_simulink

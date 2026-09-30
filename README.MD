@@ -33,7 +33,7 @@ The pipeline follows the standard four-stage autonomous driving architecture, ad
    +--------------------------------------------+
    |  PERCEPTION                                 |
    |  Object detection (YOLOv8, fine-tuned on    |
-   |  IDD, DriveIndia, DATS_2022, INTSD)         |
+   |  IDD, DriveIndia, RDD2022)                  |
    |  Semantic free-space segmentation            |
    |  Pothole and negative-obstacle detection     |
    +--------------------------------------------+

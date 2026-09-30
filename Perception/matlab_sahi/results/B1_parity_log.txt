@@ -1,0 +1,36 @@
+A3 SAHI Block 1 parity  (29-Sep-2026 17:12:44, MATLAB 2025b)
+
+GPU usable: 1
+Input layer: nnet.cnn.layer.ImageInputLayer  [640 640 3]
+Input normalization: none
+Output 1  p3Output   size [80 80 76 1]     format SSCB
+Output 2  p4Output   size [40 40 76 1]     format SSCB
+Output 3  p5Output   size [20 20 76 1]     format SSCB
+
+==== mode: dual ====
+frame        | full-frame py/mat/matched | SAHI py/mat/matched | new py/mat | min IoU | max dScore | tiles | detect() count
+frontNear__B |         7 /  7 /  7        |    13 / 13 / 13     |    6 /  6  | 0.9854  | 0.029   |   8   |  3
+highquality_ |        42 / 42 / 42        |    59 / 59 / 59     |   10 / 10  | 0.9970  | 0.0079   |   8   | 28
+rearNear__BL |         7 /  7 /  7        |    12 / 12 / 12     |    5 /  5  | 0.9972  | 0.0021   |   8   |  7
+sideLeft__BL |         8 /  8 /  8        |    10 / 10 / 10     |    2 /  2  | 0.9961  | 0.0022   |   8   |  8
+TOTAL        |        64 / 64 / 64        |    94 / 94 / 94     |   23 / 23
+
+==== mode: fast ====
+frame        | full-frame py/mat/matched | SAHI py/mat/matched | new py/mat | min IoU | max dScore | tiles | detect() count
+frontNear__B |         7 /  7 /  7        |    11 / 11 / 11     |    4 /  4  | 0.7753  | 0.029   |   4   |  3
+highquality_ |        42 / 42 / 42        |    55 / 55 / 55     |   10 / 10  | 0.9984  | 0.00056   |   4   | 28
+rearNear__BL |         7 /  7 /  7        |    10 / 10 / 10     |    3 /  3  | 0.9972  | 0.0021   |   4   |  7
+sideLeft__BL |         8 /  8 /  8        |     9 /  9 /  9     |    1 /  1  | 0.9961  | 0.0022   |   4   |  8
+TOTAL        |        64 / 64 / 64        |    85 / 85 / 85     |   18 / 18
+
+Saved D:\SIH\work\A3_sahi\B1_parity
+I = imread('D:\SIH\share\C3_detector_v1\test_images\highquality_16k__BLR-2018-05-31_10-49-32__2018-05-31_10-58-6-131756_leftImg8bit.jpg');
+[~, s] = detect(det, I, Threshold=0.25);  min(s)
+
+ans =
+
+  <a href="matlab:helpPopup('single')" style="font-weight:bold">single</a>
+
+    0.5243
+
+test_B2_speed
