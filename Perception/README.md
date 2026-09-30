@@ -16,7 +16,7 @@ Autonomous navigation on unstructured Indian roads demands a perception architec
 - Severe road surface anomalies, unpaved shoulders, and speed breakers.
 
 This directory implements the **Perception Pipeline** utilizing:
-1. **C3 IDD YOLOv8s Detector:** Fine-tuned on the India Driving Dataset (IDD) across 12 Indian-specific traffic classes.
+1. **C3 IDD YOLOv8s Detector:** Fine-tuned on the India Driving Dataset (IDD) across 12 Indian-specific traffic classes (v1). v2 adds DriveIndia + RDD2022 and 5 classes (pothole, pushcart, tractor, emergency vehicle, cone/barrier); see §8.
 2. **SAHI (Slicing Aided Hyper Inference) Dual-Band Slicing Engine:** Solves the optical downscaling bottleneck on 1080p sensors, restoring native 1:1 sensor resolution for distant targets in the 40–150m horizon band.
 3. **Pinhole Inverse Perspective Mapping (IPM):** Projects 2D bounding boxes to 3D ego Cartesian coordinates to seed downstream multi-object tracking in `Sensor_fusion`.
 
@@ -179,7 +179,10 @@ Perception/
 │
 ├── sahi_slicing_comparison.png           # 4-panel SAHI comparison, class breakdown, and resolution curve
 ├── sahi_detection_results.mat            # Full-frame and sliced detections for all 4 IDD test frames
-└── sahi_benchmark_summary.mat            # Numerical benchmark logs for SAHI visualizer
+├── sahi_benchmark_summary.mat            # Numerical benchmark logs for SAHI visualizer
+│
+├── matlab_sahi/                          # SAHI ported to MATLAB/Simulink (no Python at runtime), tests B1–B4
+└── detector/                             # Detector training data scripts (v1, v2, v2.1) + MATLAB import/tests
 ```
 
 ### Running the SAHI Slicing Engine
@@ -199,3 +202,29 @@ cd Perception
 sahi_visualizer_and_benchmark
 ```
 *Generates and displays the publication-grade 4-panel dashboard and saves `sahi_slicing_comparison.png`.*
+
+---
+
+## 8. Status update (30 Sep 2026)
+
+### 8.1 SAHI now runs in MATLAB / Simulink — [`matlab_sahi/`](matlab_sahi/)
+- Box-for-box identical to `sahi_engine.py` (B1).
+- 720 → **84 ms** per frame for the SAHI pass on an RTX 4050 laptop by batching 640xN tiles and reusing the full-frame result (B2).
+- Measured on 1,127 labelled IDD front-camera frames (B3): recall of 16–32 px road users **17% → 47%**, <16 px **1% → 26%**, mAP50 0.40 → 0.51; cost 1.7 → 4.1 false boxes per frame (3.0 with the tile-only score cut).
+- Runs as a 5 Hz Simulink loop next to the 30 Hz full-frame loop with fixed-size outputs (B4).
+
+### 8.2 Detector v2 / v2.1 — [`detector/`](detector/)
+| | v1 | v2 |
+|---|---|---|
+| Classes | 12 | 17 (+ pothole, pushcart, tractor, emergency vehicle, cone/barrier) |
+| Data | IDD | IDD + DriveIndia + RDD2022 (59k images) |
+| IDD val mAP50 (12 shared classes) | 0.506 | 0.499 |
+| DriveIndia val mAP50 (12 shared classes) | 0.523 | 0.773 |
+| Pothole mAP50 (RDD2022 val) | — | 0.445 |
+
+v2.1 (training now) adds a `slow_zone` class (speed bumps, zebra crossings, rumble strips — all mean "slow down"; LiDAR separates raised from painted) and more potholes.
+
+### 8.3 Corrections to earlier text
+- The detector used above (§2–§5) is v1, trained on **IDD only**. DATS_2022 and INTSD are planned, not yet used.
+- MATLAB's `detect()` from the YOLO add-on drops boxes scoring below ~0.5 even with `Threshold=0.25`, so detection counts made with it are low. `sahiDetect` uses its own decoder.
+- The camera numbers (f 1200 px, h 1.5 m, pitch 0) are a placeholder until the simulation camera is fixed.

@@ -1,0 +1,85 @@
+A3 SAHI Block 3 accuracy  (29-Sep-2026 21:01:33, MATLAB 2025b)
+
+Front-camera val frames: 1127  (frontFar 227  frontNear 337  highquality_16k 563  )
+
+    50 / 1127 frames  (0.5 min)
+   100 / 1127 frames  (1.0 min)
+   150 / 1127 frames  (1.5 min)
+   200 / 1127 frames  (2.0 min)
+   250 / 1127 frames  (2.6 min)
+   300 / 1127 frames  (3.2 min)
+   350 / 1127 frames  (3.9 min)
+   400 / 1127 frames  (4.5 min)
+   450 / 1127 frames  (5.1 min)
+   500 / 1127 frames  (5.8 min)
+   550 / 1127 frames  (6.4 min)
+   600 / 1127 frames  (7.0 min)
+   650 / 1127 frames  (7.4 min)
+   700 / 1127 frames  (8.1 min)
+   750 / 1127 frames  (8.7 min)
+   800 / 1127 frames  (9.4 min)
+   850 / 1127 frames  (10.0 min)
+   900 / 1127 frames  (10.7 min)
+   950 / 1127 frames  (11.3 min)
+  1000 / 1127 frames  (12.0 min)
+  1050 / 1127 frames  (12.6 min)
+  1100 / 1127 frames  (13.3 min)
+  1127 / 1127 frames  (13.6 min)
+
+=== Recall of ROAD USERS by box height (1080p px) — IoU >= 0.5 ===
+set-up                                    <16    16-32    32-64   64-128    >=128
+  (GT boxes)                             2116     3812     4554     3589     3656
+full-frame only                          0.9%    17.3%    47.6%    74.1%    91.0%
+v1 placeholder rows, 640x640 tiles      23.4%    44.6%    64.7%    79.5%    91.5%
+v1 placeholder rows, 640xN tiles        23.7%    45.1%    65.1%    79.4%    91.5%
+per-camera rows, 640x640 tiles          24.0%    46.4%    65.7%    79.3%    91.5%
+per-camera rows, 640xN tiles            25.8%    47.2%    66.6%    79.8%    91.5%
+Pranava dual bands (8 tiles)            26.1%    48.0%    69.4%    81.9%    92.1%
+
+=== Recall of TRAFFIC SIGNS + LIGHTS by box height ===
+set-up                                    <16    16-32    32-64   64-128    >=128
+  (GT boxes)                              237      264      214      104       26
+full-frame only                          2.1%    22.3%    39.3%    68.3%    61.5%
+v1 placeholder rows, 640x640 tiles      11.8%    35.2%    50.0%    71.2%    57.7%
+v1 placeholder rows, 640xN tiles        12.7%    35.6%    51.4%    71.2%    57.7%
+per-camera rows, 640x640 tiles          14.3%    40.2%    57.9%    72.1%    57.7%
+per-camera rows, 640xN tiles            16.0%    42.4%    55.6%    72.1%    57.7%
+Pranava dual bands (8 tiles)            17.3%    41.3%    54.7%    71.2%    57.7%
+
+=== False detections and precision (all classes) ===
+set-up                                 FP/frame small FP/frame  precision    mAP50    SAHI ms
+full-frame only                            1.69           0.30      82.7%    0.403       43.9
+v1 placeholder rows, 640x640 tiles         4.09           1.63      71.7%    0.480      132.1
+v1 placeholder rows, 640xN tiles           4.09           1.67      71.7%    0.485       74.8
+per-camera rows, 640x640 tiles             4.19           1.72      71.4%    0.497      133.5
+per-camera rows, 640xN tiles               4.10           1.69      72.1%    0.507       80.2
+Pranava dual bands (8 tiles)               4.67           1.85      69.9%    0.504      262.6
+
+=== Small road-user recall (<32 px) by camera ===
+set-up                                        frontFar         frontNear   highquality_16k
+  (GT boxes)                                       159               409              5360
+full-frame only                                  26.4%             15.6%             10.7%
+v1 placeholder rows, 640x640 tiles               27.7%             46.2%             36.6%
+v1 placeholder rows, 640xN tiles                 28.9%             46.9%             37.0%
+per-camera rows, 640x640 tiles                   30.8%             47.4%             37.9%
+per-camera rows, 640xN tiles                     32.1%             49.1%             39.1%
+Pranava dual bands (8 tiles)                     32.1%             53.8%             39.3%
+
+=== AP50 per class ===
+class                   S1      S2      S3      S4      S5      S6
+person               0.392   0.531   0.547   0.534   0.569   0.588
+rider                0.468   0.589   0.594   0.597   0.607   0.626
+car                  0.549   0.685   0.684   0.691   0.700   0.710
+bus                  0.604   0.674   0.665   0.716   0.713   0.643
+truck                0.531   0.627   0.634   0.641   0.653   0.603
+autorickshaw         0.601   0.705   0.710   0.726   0.728   0.742
+motorcycle           0.562   0.687   0.692   0.686   0.705   0.719
+bicycle              0.427   0.440   0.445   0.436   0.471   0.479
+animal               0.192   0.221   0.236   0.225   0.238   0.251
+traffic sign         0.240   0.336   0.338   0.376   0.384   0.376
+traffic light        0.221   0.208   0.211   0.281   0.263   0.247
+vehicle fallback     0.044   0.057   0.057   0.054   0.054   0.059
+(S1..S6 = set-ups in the order above)
+
+Saved D:\SIH\work\A3_sahi\B3_accuracy  (13.8 min total)
+test_B4_simulink

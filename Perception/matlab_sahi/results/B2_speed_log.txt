@@ -1,0 +1,29 @@
+A3 SAHI Block 2 speed  (29-Sep-2026 19:13:29, MATLAB 2025b)
+GPU: NVIDIA GeForce RTX 4050 Laptop GPU, 6.0 GB
+
+Original network:  640x224 input OK | batch of 4 OK
+
+set-up                                    median      p90 |   full-fr     tiles    merge | tiles  boxes
+full-frame, square (30 Hz loop)           57.7 ms   83.3 |    57.0       0.0      0.1 |     0     64
+full-frame, rect 640x384                  96.6 ms  113.2 |    95.5       0.0      0.1 |     0     64
+v1 band, square, one call per tile       423.9 ms  487.6 |    84.7     334.8      0.2 |     4     88
+v1 band, square, batched                 240.3 ms  266.4 |    87.3     149.4      0.2 |     4     88
+v1 band, rect, one call per tile         383.7 ms  461.9 |    79.6     292.9      0.2 |     4     88
+v1 band, rect, batched                   194.7 ms  246.4 |    92.0     103.6      0.2 |     4     88
+v1 band, rect, batched, reuse full        83.9 ms  103.0 |     0.0      82.4      0.1 |     4     88
+dual (Pranava), square, per tile         719.5 ms  792.1 |    81.6     635.8      0.2 |     8     94
+dual (Pranava), rect, batched            303.4 ms  348.2 |    87.2     211.9      0.2 |     8     98
+fast (Pranava), square, per tile         391.7 ms  447.2 |    81.4     305.6      0.2 |     4     85
+fast (Pranava), rect, batched            233.4 ms  264.6 |    85.0     147.7      0.2 |     4     86
+
+Box agreement vs the square, one-call-per-tile version of the same mode (IoU >= 0.5, same class):
+  v1    square 88 boxes | rect+batch 88 boxes | matched 83
+  dual  square 94 boxes | rect+batch 98 boxes | matched 90
+
+Budget check (best set-ups):
+  slow loop per 5 Hz tick : 84 ms of 200 ms
+  fast loop max rate      : 10.3 Hz  (97 ms per frame)
+  GPU busy per second at 30 Hz + 5 Hz : 3319 ms  (>1000 ms = does not fit)
+  GPU busy per second at 15 Hz + 5 Hz : 1869 ms
+
+Saved D:\SIH\work\A3_sahi\B2_speed
