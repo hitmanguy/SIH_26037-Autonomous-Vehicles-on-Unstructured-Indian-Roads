@@ -16,7 +16,7 @@ classdef dynamic_costmap_manager < handle
         x_range        = [-5.5, 5.5]; % Lateral range (meters)
         z_range        = [0.0, 45.0]; % Longitudinal range (meters)
         road_bounds    = [-4.5, 4.5]; % Road boundary limits [left, right]
-        corridor_x     = -1.8;        % Center of virtual lane corridor
+        corridor_x     = 0.0;         % Center of virtual lane corridor (centered on vehicle in body frame)
         corridor_width = 2.6;         % Width of virtual lane corridor
         
         x_vec

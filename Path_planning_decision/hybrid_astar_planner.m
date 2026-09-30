@@ -101,7 +101,7 @@ classdef hybrid_astar_planner < handle
                     closest_node_idx = curr_idx;
                 end
                 
-                if (curr.z >= zg - 1.0) || (dist_g <= 1.5 && abs(angdiff(curr.theta, thg)) < deg2rad(25))
+                if (curr.z >= zg - 1.0) || (dist_g <= 1.5 && abs(atan2(sin(thg - curr.theta), cos(thg - curr.theta))) < deg2rad(25))
                     goal_node_idx = curr_idx;
                     break;
                 end
@@ -228,7 +228,7 @@ classdef hybrid_astar_planner < handle
         function h = heuristic(obj, x, z, th, xg, zg, thg)
             % Euclidean distance + heading alignment penalty
             dist = hypot(x - xg, z - zg);
-            d_th = abs(angdiff(th, thg));
+            d_th = abs(atan2(sin(thg - th), cos(thg - th)));
             h = dist + 1.5 * d_th;
         end
         

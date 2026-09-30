@@ -36,11 +36,14 @@ classdef decision_supervisor < handle
         debounce_count      = 0;       % Debounce cycles
         debounce_limit      = 2;       % Minimum cycles to confirm state transition
         candidate_state     = 'CRUISE';
+        v_cruise_kmh        = 25.0;    % Configurable scenario cruise speed (km/h) - calm & steady pace
     end
     
     methods
         function obj = decision_supervisor(cfg)
             if nargin >= 1 && ~isempty(cfg)
+                if isfield(cfg, 'v_cruise_kmh'),       obj.v_cruise_kmh       = cfg.v_cruise_kmh; end
+                if isfield(cfg, 'cruise_speed'),       obj.v_cruise_kmh       = cfg.cruise_speed * 3.6; end
                 if isfield(cfg, 'ttc_stop_thresh'),    obj.ttc_stop_thresh    = cfg.ttc_stop_thresh; end
                 if isfield(cfg, 'ttc_slow_thresh'),    obj.ttc_slow_thresh    = cfg.ttc_slow_thresh; end
                 if isfield(cfg, 'stop_timeout_limit'), obj.stop_timeout_limit = cfg.stop_timeout_limit; end
@@ -112,15 +115,15 @@ classdef decision_supervisor < handle
                 case 'CRUISE'
                     obj.current_state_id = 1;
                     obj.urgency_factor = 0.0;
-                    target_speed_kmh = 40.0;
+                    target_speed_kmh = obj.v_cruise_kmh;
                 case 'SLOW_DOWN'
                     obj.current_state_id = 2;
                     obj.urgency_factor = 0.4;
-                    target_speed_kmh = 20.0;
+                    target_speed_kmh = 0.5 * obj.v_cruise_kmh;
                 case 'YIELD'
                     obj.current_state_id = 3;
                     obj.urgency_factor = 0.6;
-                    target_speed_kmh = 10.0;
+                    target_speed_kmh = 0.25 * obj.v_cruise_kmh;
                 case 'STOP'
                     obj.current_state_id = 4;
                     obj.urgency_factor = 1.0;
@@ -128,11 +131,11 @@ classdef decision_supervisor < handle
                 case 'REROUTE'
                     obj.current_state_id = 5;
                     obj.urgency_factor = 0.8;
-                    target_speed_kmh = 10.0;
+                    target_speed_kmh = 0.3 * obj.v_cruise_kmh;
                 otherwise
                     obj.current_state_id = 1;
                     obj.urgency_factor = 0.0;
-                    target_speed_kmh = 40.0;
+                    target_speed_kmh = obj.v_cruise_kmh;
             end
             
             decision = struct(...
@@ -159,7 +162,13 @@ classdef decision_supervisor < handle
                 return;
             end
             
-            if min_TTC < obj.ttc_stop_thresh || (is_path_blocked && min_TTC < 2.2)
+            % If path is blocked by a static obstacle/barrier/pothole, trigger REROUTE immediately to detour
+            if is_path_blocked && min_TTC >= obj.ttc_stop_thresh
+                target = 'REROUTE';
+                return;
+            end
+
+            if min_TTC < obj.ttc_stop_thresh
                 target = 'STOP';
                 return;
             end

@@ -37,13 +37,13 @@ function [costmap_struct, stateflow_decision] = prediction_to_costmap_bridge(pre
     if nargin < 3 || isempty(cfg)
         cfg.grid_res      = 0.20;       % 20 cm grid resolution (meters)
         cfg.x_range       = [-6.0, 6.0];% lateral bounds [-6m to +6m]
-        cfg.z_range       = [0.0, 50.0];% longitudinal bounds [0m to 50m]
+        cfg.z_range       = [0.0, 75.0];% longitudinal bounds [0m to 75m] (covers 60m long-range camera/radar)
         cfg.time_slices   = [0.5, 1.0, 2.0, 3.0]; % seconds ahead
         cfg.dt_pred       = 0.1;        % prediction timestep (100 ms)
         cfg.ego_x         = -1.8;
         cfg.ego_width     = 2.0;
-        cfg.hard_ttc_lim  = 1.8;        % seconds (triggers STOP)
-        cfg.soft_ttc_lim  = 3.5;        % seconds (triggers SLOW_DOWN)
+        cfg.hard_ttc_lim  = 2.5;        % seconds (triggers emergency STOP)
+        cfg.soft_ttc_lim  = 4.5;        % seconds (triggers advance SLOW_DOWN up to 60m)
     end
 
     fprintf('========================================================================\n');
@@ -168,21 +168,29 @@ function [costmap_struct, stateflow_decision] = prediction_to_costmap_bridge(pre
     near_slice_cost = cost_slices(:, :, 1); % 0.5s slice
     is_path_blocked = all(max(near_slice_cost(ego_corridor_mask)) >= 0.90);
 
-    % Stateflow Supervisor Mode Determination (Slide 12)
+    % Stateflow Supervisor Mode Determination (Safety-First Hierarchy)
     % 0: CRUISE, 1: SLOW_DOWN, 2: YIELD, 3: STOP, 4: REROUTE
-    if is_path_blocked
-        sf_mode = 4;
-        sf_mode_str = 'REROUTE';
-        target_speed_factor = 0.0;
-    elseif min_ttc < cfg.hard_ttc_lim
+    is_vru_threat = contains(lower(crit_agent_class), 'person') || ...
+                    contains(lower(crit_agent_class), 'pedestrian') || ...
+                    contains(lower(crit_agent_class), 'vru');
+
+    if (is_vru_threat && min_ttc < 3.2) || (~is_path_blocked && min_ttc < cfg.hard_ttc_lim)
+        % Priority 1: IMMINENT COLLISION THREAT (VRU crossing or unavoidable collision) -> Critical STOP
         sf_mode = 3;
         sf_mode_str = 'STOP';
         target_speed_factor = 0.0;
-    elseif min_ttc <= cfg.soft_ttc_lim
+    elseif is_path_blocked && ~is_vru_threat
+        % Priority 2: Static road blockage / barrier / pothole -> REROUTE (lateral detour around obstacle)
+        sf_mode = 4;
+        sf_mode_str = 'REROUTE';
+        target_speed_factor = 0.55; % Safe smooth detour crawl (14 km/h steady pace)
+    elseif min_ttc <= cfg.soft_ttc_lim || is_vru_threat
+        % Priority 3: Soft hazard or VRU approaching path -> SLOW DOWN in advance
         sf_mode = 1;
         sf_mode_str = 'SLOW_DOWN';
-        target_speed_factor = 0.5;
+        target_speed_factor = 0.4;
     else
+        % Priority 4: Clear driving path -> CRUISE
         sf_mode = 0;
         sf_mode_str = 'CRUISE';
         target_speed_factor = 1.0;
