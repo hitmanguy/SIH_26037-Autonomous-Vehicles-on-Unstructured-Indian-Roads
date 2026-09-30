@@ -1,6 +1,7 @@
 # How to Run Autonomous Driving Scenarios
 
 Run all commands directly inside the **MATLAB Command Window** (MATLAB R2025b).
+Before Everything, make sure to run startup.m on matlab to add all paths
 
 ---
 
