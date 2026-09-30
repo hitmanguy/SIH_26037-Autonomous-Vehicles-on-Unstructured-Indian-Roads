@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OpenSCENARIO>
+  <FileHeader revMajor="1" revMinor="1" date="2026-09-29T00:00:00" description="Stationary Cattle / Obstacle in Lane with Oncoming Traffic" author="SIH26 Autonomous Driving Team"/>
+  <RoadNetwork>
+    <LogicFile filepath="../../maps_xodr/Indian_Urban_Arterial.xodr"/>
+  </RoadNetwork>
+  <Entities>
+    <ScenarioObject name="Ego">
+      <Vehicle name="EgoCar" vehicleCategory="car"><Dimensions width="1.80" length="4.50" height="1.50"/></Vehicle>
+    </ScenarioObject>
+    <ScenarioObject name="StrayCattle">
+      <!-- Modeled as barrier/cuboid object in roadway -->
+      <MiscObject name="Cow_Obstacle" miscObjectCategory="obstacle" mass="400.0"><Dimensions width="1.10" length="2.10" height="1.40"/></MiscObject>
+    </ScenarioObject>
+    <ScenarioObject name="OncomingVehicle">
+      <Vehicle name="OncomingBus" vehicleCategory="bus"><Dimensions width="2.50" length="10.50" height="3.20"/></Vehicle>
+    </ScenarioObject>
+  </Entities>
+  <Storyboard>
+    <Init>
+      <Actions>
+        <Private entityRef="Ego">
+          <PrivateAction><TeleportAction><Position><WorldPosition x="20.0" y="-1.75" z="0.0" h="0.0"/></Position></TeleportAction></PrivateAction>
+          <PrivateAction><LongitudinalAction><SpeedAction><SpeedActionDynamics dynamicsShape="step" value="0.0" dynamicsDimension="time"/><SpeedActionTarget><AbsoluteTargetSpeed value="11.11"/></SpeedActionTarget></SpeedAction></LongitudinalAction></PrivateAction>
+        </Private>
+        <Private entityRef="StrayCattle">
+          <PrivateAction><TeleportAction><Position><WorldPosition x="100.0" y="-1.75" z="0.0" h="0.0"/></Position></TeleportAction></PrivateAction>
+          <PrivateAction><LongitudinalAction><SpeedAction><SpeedActionDynamics dynamicsShape="step" value="0.0" dynamicsDimension="time"/><SpeedActionTarget><AbsoluteTargetSpeed value="0.0"/></SpeedActionTarget></SpeedAction></LongitudinalAction></PrivateAction>
+        </Private>
+        <Private entityRef="OncomingVehicle">
+          <PrivateAction><TeleportAction><Position><WorldPosition x="250.0" y="1.75" z="0.0" h="3.14159"/></Position></TeleportAction></PrivateAction>
+          <PrivateAction><LongitudinalAction><SpeedAction><SpeedActionDynamics dynamicsShape="step" value="0.0" dynamicsDimension="time"/><SpeedActionTarget><AbsoluteTargetSpeed value="9.72"/></SpeedActionTarget></SpeedAction></LongitudinalAction></PrivateAction>
+        </Private>
+      </Actions>
+    </Init>
+    <Story name="CattleStory"><Act name="CattleAct"><ManeuverGroup maximumExecutionCount="1" name="MG_Hold"><Actors selectTriggeringEntities="false"><EntityRef entityRef="StrayCattle"/></Actors><Maneuver name="M_Static"><Event name="HoldEvent" priority="overwrite"><Action name="HoldStill"><PrivateAction><LongitudinalAction><SpeedAction><SpeedActionDynamics dynamicsShape="step" value="0.0" dynamicsDimension="time"/><SpeedActionTarget><AbsoluteTargetSpeed value="0.0"/></SpeedActionTarget></SpeedAction></LongitudinalAction></PrivateAction></Action><StartTrigger><ConditionGroup><Condition name="StartImmediate" delay="0" conditionEdge="none"><ByValueCondition><SimulationTimeCondition value="0.0" rule="greaterThan"/></ByValueCondition></Condition></ConditionGroup></StartTrigger></Event></Maneuver></ManeuverGroup></Act></Story>
+    <StopTrigger/>
+  </Storyboard>
+</OpenSCENARIO>

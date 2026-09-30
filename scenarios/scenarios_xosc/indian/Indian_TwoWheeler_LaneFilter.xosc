@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OpenSCENARIO>
+  <FileHeader revMajor="1" revMinor="1" date="2026-09-29T00:00:00" description="Two-Wheeler Motorcycle Filtering Between Lanes" author="SIH26 Autonomous Driving Team"/>
+  <ParameterDeclarations>
+    <ParameterDeclaration name="Ego_Speed" parameterType="double" value="8.33"/>  <!-- 30 km/h -->
+    <ParameterDeclaration name="Bike_Speed" parameterType="double" value="13.88"/> <!-- 50 km/h -->
+  </ParameterDeclarations>
+  <RoadNetwork>
+    <LogicFile filepath="../../maps_xodr/Indian_Urban_Arterial.xodr"/>
+  </RoadNetwork>
+  <Entities>
+    <ScenarioObject name="Ego">
+      <Vehicle name="EgoCar" vehicleCategory="car">
+        <Dimensions width="1.80" length="4.50" height="1.50"/>
+      </Vehicle>
+    </ScenarioObject>
+    <ScenarioObject name="Motorcycle">
+      <Vehicle name="RoyalEnfield" vehicleCategory="motorbike">
+        <Dimensions width="0.75" length="2.10" height="1.20"/>
+      </Vehicle>
+    </ScenarioObject>
+    <ScenarioObject name="ParallelCar">
+      <Vehicle name="MarutiSwift" vehicleCategory="car">
+        <Dimensions width="1.75" length="3.90" height="1.50"/>
+      </Vehicle>
+    </ScenarioObject>
+  </Entities>
+  <Storyboard>
+    <Init>
+      <Actions>
+        <Private entityRef="Ego">
+          <PrivateAction><TeleportAction><Position><WorldPosition x="30.0" y="-1.75" z="0.0" h="0.0"/></Position></TeleportAction></PrivateAction>
+          <PrivateAction><LongitudinalAction><SpeedAction><SpeedActionDynamics dynamicsShape="step" value="0.0" dynamicsDimension="time"/><SpeedActionTarget><AbsoluteTargetSpeed value="$Ego_Speed"/></SpeedActionTarget></SpeedAction></LongitudinalAction></PrivateAction>
+        </Private>
+        <Private entityRef="ParallelCar">
+          <PrivateAction><TeleportAction><Position><WorldPosition x="40.0" y="-5.25" z="0.0" h="0.0"/></Position></TeleportAction></PrivateAction>
+          <PrivateAction><LongitudinalAction><SpeedAction><SpeedActionDynamics dynamicsShape="step" value="0.0" dynamicsDimension="time"/><SpeedActionTarget><AbsoluteTargetSpeed value="6.94"/></SpeedActionTarget></SpeedAction></LongitudinalAction></PrivateAction>
+        </Private>
+        <Private entityRef="Motorcycle">
+          <PrivateAction><TeleportAction><Position><WorldPosition x="5.0" y="-3.50" z="0.0" h="0.0"/></Position></TeleportAction></PrivateAction>
+          <PrivateAction><LongitudinalAction><SpeedAction><SpeedActionDynamics dynamicsShape="step" value="0.0" dynamicsDimension="time"/><SpeedActionTarget><AbsoluteTargetSpeed value="$Bike_Speed"/></SpeedActionTarget></SpeedAction></LongitudinalAction></PrivateAction>
+        </Private>
+      </Actions>
+    </Init>
+    <Story name="MotorcycleFilteringStory">
+      <Act name="FilterAct">
+        <ManeuverGroup maximumExecutionCount="1" name="MG_Motorcycle">
+          <Actors selectTriggeringEntities="false"><EntityRef entityRef="Motorcycle"/></Actors>
+          <Maneuver name="FilterWeave">
+            <Event name="OvertakeEvent" priority="overwrite">
+              <Action name="SpeedMaintain">
+                <PrivateAction><LongitudinalAction><SpeedAction><SpeedActionDynamics dynamicsShape="linear" value="1.0" dynamicsDimension="time"/><SpeedActionTarget><AbsoluteTargetSpeed value="$Bike_Speed"/></SpeedActionTarget></SpeedAction></LongitudinalAction></PrivateAction>
+              </Action>
+              <StartTrigger><ConditionGroup><Condition name="Immediate" delay="0" conditionEdge="none"><ByValueCondition><SimulationTimeCondition value="0.0" rule="greaterThan"/></ByValueCondition></Condition></ConditionGroup></StartTrigger>
+            </Event>
+          </Maneuver>
+        </ManeuverGroup>
+      </Act>
+    </Story>
+    <StopTrigger/>
+  </Storyboard>
+</OpenSCENARIO>

@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OpenSCENARIO>
+  <FileHeader revMajor="1" revMinor="1" date="2026-09-29T00:00:00" description="ASAM OpenSCENARIO Standard Example: Overtaking a Slow Vehicle" author="ASAM e.V."/>
+  <RoadNetwork>
+    <LogicFile filepath="../../maps_xodr/Indian_Urban_Arterial.xodr"/>
+  </RoadNetwork>
+  <Entities>
+    <ScenarioObject name="Ego">
+      <Vehicle name="EgoCar" vehicleCategory="car"><Dimensions width="1.80" length="4.50" height="1.50"/></Vehicle>
+    </ScenarioObject>
+    <ScenarioObject name="SlowTruck">
+      <Vehicle name="SlowTruck" vehicleCategory="truck"><Dimensions width="2.40" length="8.00" height="3.00"/></Vehicle>
+    </ScenarioObject>
+  </Entities>
+  <Storyboard>
+    <Init>
+      <Actions>
+        <Private entityRef="Ego">
+          <PrivateAction><TeleportAction><Position><WorldPosition x="15.0" y="-1.75" z="0.0" h="0.0"/></Position></TeleportAction></PrivateAction>
+          <PrivateAction><LongitudinalAction><SpeedAction><SpeedActionDynamics dynamicsShape="step" value="0.0" dynamicsDimension="time"/><SpeedActionTarget><AbsoluteTargetSpeed value="13.88"/></SpeedActionTarget></SpeedAction></LongitudinalAction></PrivateAction>
+        </Private>
+        <Private entityRef="SlowTruck">
+          <PrivateAction><TeleportAction><Position><WorldPosition x="65.0" y="-1.75" z="0.0" h="0.0"/></Position></TeleportAction></PrivateAction>
+          <PrivateAction><LongitudinalAction><SpeedAction><SpeedActionDynamics dynamicsShape="step" value="0.0" dynamicsDimension="time"/><SpeedActionTarget><AbsoluteTargetSpeed value="5.55"/></SpeedActionTarget></SpeedAction></LongitudinalAction></PrivateAction>
+        </Private>
+      </Actions>
+    </Init>
+    <Story name="OvertakeStory">
+      <Act name="OvertakeAct">
+        <ManeuverGroup maximumExecutionCount="1" name="MG_Overtake">
+          <Actors selectTriggeringEntities="false"><EntityRef entityRef="Ego"/></Actors>
+          <Maneuver name="Maneuver_Pass">
+            <Event name="ShiftLane" priority="overwrite">
+              <Action name="LaneShift">
+                <PrivateAction><LateralAction><LaneChangeAction><LaneChangeActionDynamics dynamicsShape="sinusoidal" value="2.0" dynamicsDimension="time"/><LaneChangeTarget><RelativeTargetLane entityRef="Ego" value="1"/></LaneChangeTarget></LaneChangeAction></LateralAction></PrivateAction>
+              </Action>
+              <StartTrigger><ConditionGroup><Condition name="DistanceTrigger" delay="0" conditionEdge="rising"><EntityCondition><DistanceCondition value="20.0" freespace="false" rule="lessThan"><EntityRef entityRef="SlowTruck"/></DistanceCondition></EntityCondition></Condition></ConditionGroup></StartTrigger>
+            </Event>
+          </Maneuver>
+        </ManeuverGroup>
+      </Act>
+    </Story>
+    <StopTrigger/>
+  </Storyboard>
+</OpenSCENARIO>

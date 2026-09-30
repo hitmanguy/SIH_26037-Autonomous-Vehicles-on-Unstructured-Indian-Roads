@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OpenSCENARIO>
+  <FileHeader revMajor="1" revMinor="1" date="2026-09-29T00:00:00" description="Mid-block Pedestrians Jaywalking Between Parked Buses" author="SIH26 Autonomous Driving Team"/>
+  <RoadNetwork>
+    <LogicFile filepath="../../maps_xodr/Indian_Urban_Arterial.xodr"/>
+  </RoadNetwork>
+  <Entities>
+    <ScenarioObject name="Ego">
+      <Vehicle name="EgoCar" vehicleCategory="car"><Dimensions width="1.80" length="4.50" height="1.50"/></Vehicle>
+    </ScenarioObject>
+    <ScenarioObject name="ParkedBus">
+      <Vehicle name="BMTC_Bus" vehicleCategory="bus"><Dimensions width="2.60" length="11.00" height="3.20"/></Vehicle>
+    </ScenarioObject>
+    <ScenarioObject name="Pedestrian">
+      <Pedestrian name="Pedestrian_Jaywalker" pedestrianCategory="pedestrian" mass="70.0"><Dimensions width="0.45" length="0.28" height="1.75"/></Pedestrian>
+    </ScenarioObject>
+  </Entities>
+  <Storyboard>
+    <Init>
+      <Actions>
+        <Private entityRef="Ego">
+          <PrivateAction><TeleportAction><Position><WorldPosition x="20.0" y="-1.75" z="0.0" h="0.0"/></Position></TeleportAction></PrivateAction>
+          <PrivateAction><LongitudinalAction><SpeedAction><SpeedActionDynamics dynamicsShape="step" value="0.0" dynamicsDimension="time"/><SpeedActionTarget><AbsoluteTargetSpeed value="11.11"/></SpeedActionTarget></SpeedAction></LongitudinalAction></PrivateAction>
+        </Private>
+        <Private entityRef="ParkedBus">
+          <PrivateAction><TeleportAction><Position><WorldPosition x="90.0" y="-5.25" z="0.0" h="0.0"/></Position></TeleportAction></PrivateAction>
+          <PrivateAction><LongitudinalAction><SpeedAction><SpeedActionDynamics dynamicsShape="step" value="0.0" dynamicsDimension="time"/><SpeedActionTarget><AbsoluteTargetSpeed value="0.0"/></SpeedActionTarget></SpeedAction></LongitudinalAction></PrivateAction>
+        </Private>
+        <Private entityRef="Pedestrian">
+          <PrivateAction><TeleportAction><Position><WorldPosition x="97.0" y="-7.0" z="0.0" h="1.5707"/></Position></TeleportAction></PrivateAction>
+          <PrivateAction><LongitudinalAction><SpeedAction><SpeedActionDynamics dynamicsShape="step" value="0.0" dynamicsDimension="time"/><SpeedActionTarget><AbsoluteTargetSpeed value="1.5"/></SpeedActionTarget></SpeedAction></LongitudinalAction></PrivateAction>
+        </Private>
+      </Actions>
+    </Init>
+    <Story name="JaywalkStory"><Act name="JaywalkAct"><ManeuverGroup maximumExecutionCount="1" name="MG_Ped"><Actors selectTriggeringEntities="false"><EntityRef entityRef="Pedestrian"/></Actors><Maneuver name="Maneuver_Cross"><Event name="CrossEvent" priority="overwrite"><Action name="CrossWalk"><PrivateAction><LongitudinalAction><SpeedAction><SpeedActionDynamics dynamicsShape="linear" value="0.5" dynamicsDimension="time"/><SpeedActionTarget><AbsoluteTargetSpeed value="1.5"/></SpeedActionTarget></SpeedAction></LongitudinalAction></PrivateAction></Action><StartTrigger><ConditionGroup><Condition name="TriggerDist" delay="0" conditionEdge="rising"><EntityCondition><DistanceCondition value="35.0" freespace="false" rule="lessThan"><EntityRef entityRef="Ego"/></DistanceCondition></EntityCondition></Condition></ConditionGroup></StartTrigger></Event></Maneuver></ManeuverGroup></Act></Story>
+    <StopTrigger/>
+  </Storyboard>
+</OpenSCENARIO>

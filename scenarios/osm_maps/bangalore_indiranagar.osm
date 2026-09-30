@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<osm version="0.6" generator="SIH26-IndianRoadNetworkGenerator">
+  <bounds minlat="12.9700" minlon="77.6390" maxlat="12.9750" maxlon="77.6440"/>
+  
+  <!-- 100 Feet Road (North-South Primary Arterial, Indiranagar, Bengaluru) -->
+  <node id="1001" lat="12.9700" lon="77.6415"/>
+  <node id="1002" lat="12.9710" lon="77.6415"/>
+  <node id="1003" lat="12.9720" lon="77.6415"/>
+  <node id="1004" lat="12.9725" lon="77.6415"/> <!-- Junction center with CMH Road -->
+  <node id="1005" lat="12.9730" lon="77.6415"/>
+  <node id="1006" lat="12.9740" lon="77.6415"/>
+  <node id="1007" lat="12.9750" lon="77.6415"/>
+
+  <!-- CMH Road (East-West Secondary Arterial, Indiranagar, Bengaluru) -->
+  <node id="2001" lat="12.9725" lon="77.6390"/>
+  <node id="2002" lat="12.9725" lon="77.6402"/>
+  <node id="2003" lat="12.9725" lon="77.6415"/> <!-- Same as 1004: Intersection -->
+  <node id="2004" lat="12.9725" lon="77.6428"/>
+  <node id="2005" lat="12.9725" lon="77.6440"/>
+
+  <!-- 12th Main Road (Commercial Parallel Corridor) -->
+  <node id="3001" lat="12.9710" lon="77.6402"/>
+  <node id="3002" lat="12.9725" lon="77.6402"/> <!-- Intersects CMH Road at 2002 -->
+  <node id="3003" lat="12.9740" lon="77.6402"/>
+
+  <!-- Way 1: 100 Feet Road South Section -->
+  <way id="101">
+    <nd ref="1001"/>
+    <nd ref="1002"/>
+    <nd ref="1003"/>
+    <nd ref="1004"/>
+    <tag k="highway" v="primary"/>
+    <tag k="name" v="100 Feet Road (South)"/>
+    <tag k="lanes" v="4"/>
+    <tag k="oneway" v="no"/>
+    <tag k="maxspeed" v="50"/>
+    <tag k="surface" v="asphalt"/>
+  </way>
+
+  <!-- Way 2: 100 Feet Road North Section -->
+  <way id="102">
+    <nd ref="1004"/>
+    <nd ref="1005"/>
+    <nd ref="1006"/>
+    <nd ref="1007"/>
+    <tag k="highway" v="primary"/>
+    <tag k="name" v="100 Feet Road (North)"/>
+    <tag k="lanes" v="4"/>
+    <tag k="oneway" v="no"/>
+    <tag k="maxspeed" v="50"/>
+    <tag k="surface" v="asphalt"/>
+  </way>
+
+  <!-- Way 3: CMH Road West Section -->
+  <way id="201">
+    <nd ref="2001"/>
+    <nd ref="2002"/>
+    <nd ref="1004"/>
+    <tag k="highway" v="secondary"/>
+    <tag k="name" v="Chinmaya Mission Hospital Road (West)"/>
+    <tag k="lanes" v="2"/>
+    <tag k="oneway" v="no"/>
+    <tag k="maxspeed" v="40"/>
+    <tag k="surface" v="asphalt"/>
+  </way>
+
+  <!-- Way 4: CMH Road East Section -->
+  <way id="202">
+    <nd ref="1004"/>
+    <nd ref="2004"/>
+    <nd ref="2005"/>
+    <tag k="highway" v="secondary"/>
+    <tag k="name" v="Chinmaya Mission Hospital Road (East)"/>
+    <tag k="lanes" v="2"/>
+    <tag k="oneway" v="no"/>
+    <tag k="maxspeed" v="40"/>
+    <tag k="surface" v="asphalt"/>
+  </way>
+
+  <!-- Way 5: 12th Main Road -->
+  <way id="301">
+    <nd ref="3001"/>
+    <nd ref="2002"/>
+    <nd ref="3003"/>
+    <tag k="highway" v="tertiary"/>
+    <tag k="name" v="12th Main Road"/>
+    <tag k="lanes" v="2"/>
+    <tag k="oneway" v="no"/>
+    <tag k="maxspeed" v="30"/>
+    <tag k="surface" v="asphalt"/>
+  </way>
+</osm>
