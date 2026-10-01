@@ -13,9 +13,9 @@ classdef pure_pursuit_controller < handle
         Waypoints            % Nx2 reference path waypoints [X, Y]
         Wheelbase = 2.8      % Vehicle wheelbase L (meters)
         lr = 1.6             % CG to rear axle distance (meters)
-        MinLookahead = 2.0   % Minimum lookahead distance (meters) - tight agile turning
-        MaxLookahead = 7.0   % Maximum lookahead distance (meters)
-        LookaheadGain = 0.35 % Speed scaling factor (seconds)
+        MinLookahead = 4.2   % Minimum lookahead distance (meters) >= 1.5 * Wheelbase for mathematical stability
+        MaxLookahead = 9.5   % Maximum lookahead distance (meters)
+        LookaheadGain = 0.65 % Speed scaling factor (seconds)
         MaxSteering = 0.61   % Maximum front steering angle (rad) ~ 35.0 deg
         MaxSteerRate = 1.05  % Maximum steering rate (rad/s) ~ 60.0 deg/s for fast crisp avoidance
         
@@ -103,22 +103,17 @@ classdef pure_pursuit_controller < handle
             yPred = y + vx * sin(yaw + beta) * tPred;
             yawPred = wrapToPi(yaw + (vx / obj.Wheelbase) * cos(beta) * tan(prevDelta) * tPred);
 
-            % 4. Adaptive Lookahead Distance with Curvature & Cross-Track Error Coupling
-            % When executing a lane change or curve (|ey| > 0.20m), shrink Ld tightly (2.0 - 4.2m)
-            % to eliminate large sweeping curves and track turns crisply!
-            if abs(ey) > 0.20 || abs(curvature) > 0.02
-                Ld = max(2.0, min(4.2, 0.28 * vx));
-            else
-                rawLd = (obj.LookaheadGain * vx) / (1.0 + 1.5 * abs(curvature));
-                Ld = max(obj.MinLookahead, min(obj.MaxLookahead, rawLd));
-            end
+            % 4. Adaptive Lookahead Distance
+            % Must strictly satisfy Ld >= 1.5 * Wheelbase (4.2m) to guarantee closed-loop stability
+            % and eliminate underdamped snake oscillations across lanes!
+            rawLd = (obj.LookaheadGain * vx) / (1.0 + 1.2 * abs(curvature));
+            Ld = max(obj.MinLookahead, min(obj.MaxLookahead, rawLd));
 
             % 5. Search Forward along Reference Path for Lookahead Target
             distsFromPred = hypot(wps(:, 1) - xPred, wps(:, 2) - yPred);
             foundTarget = false;
             targetIdx = closestIdx;
             for k = closestIdx:min(closestIdx + 60, N)
-                % Target must be at least Ld away and geometrically ahead along road tangent
                 longProj = (wps(k, 1) - xPred) * tangentUnit(1) + (wps(k, 2) - yPred) * tangentUnit(2);
                 if distsFromPred(k) >= Ld && longProj >= 0.0
                     targetIdx = k;
@@ -140,24 +135,20 @@ classdef pure_pursuit_controller < handle
             % 6. Pure Pursuit Feedback Term
             gx = lookaheadPt(1); gy = lookaheadPt(2);
             alpha = wrapToPi(atan2(gy - yPred, gx - xPred) - yawPred);
-            delta_pp = atan2(2.0 * obj.Wheelbase * sin(alpha), max(1.0, Ld));
+            delta_pp = atan2(2.0 * obj.Wheelbase * sin(alpha), max(2.5, Ld));
 
-            % 7. Stanley Cross-Track Error Damping Term
-            k_stanley = 0.40;
-            delta_stanley = -atan(k_stanley * ey / (vx + 1.0));
-
-            % 8. Curvature Feedforward Steering
+            % 7. Curvature Feedforward Steering
             delta_ff = atan(obj.Wheelbase * curvature);
 
-            % Combined Tri-Hybrid Command
-            rawDelta = delta_pp + delta_stanley + 0.75 * delta_ff;
+            % Pure Pursuit steering with gentle feedforward (avoids double-counting error)
+            rawDelta = delta_pp + 0.40 * delta_ff;
 
-            % 9. Slew Rate Limiting & Command Smoothing
+            % 8. Slew Rate Limiting & Command Smoothing
             dDeltaMax = obj.MaxSteerRate * obj.Ts;
             deltaDelta = max(-dDeltaMax, min(dDeltaMax, rawDelta - obj.LastSteering));
             unfiltDelta = obj.LastSteering + deltaDelta;
 
-            obj.FilteredSteering = 0.95 * unfiltDelta + 0.05 * obj.FilteredSteering;
+            obj.FilteredSteering = 0.85 * unfiltDelta + 0.15 * obj.FilteredSteering;
             deltaCmd = max(-obj.MaxSteering, min(obj.MaxSteering, obj.FilteredSteering));
             obj.LastSteering = deltaCmd;
         end

@@ -95,9 +95,9 @@ classdef AutonomousAVStack < handle
         function obj = AutonomousAVStack(waypoints, cruiseSpeed, sampleTime, controllerType)
             % AUTONOMOUSAVSTACK Constructor
             if nargin < 1 || isempty(waypoints)
-                % Default 2-lane Indian road corridor with slight curve
+                % Default 2-lane Indian road corridor advancing along X
                 s = linspace(0, 300, 150)';
-                waypoints = [-1.8 * ones(size(s)), s]; % Cruising right lane at x = -1.8m
+                waypoints = [s, -1.8 * ones(size(s))]; % Cruising right lane at Y = -1.8m
             end
             if nargin < 2 || isempty(cruiseSpeed), cruiseSpeed = 6.94; end % 25 km/h steady smooth cruise
             if nargin < 3 || isempty(sampleTime), sampleTime = 0.02; end    % 50 Hz
@@ -151,8 +151,8 @@ classdef AutonomousAVStack < handle
             obj.LatestPlannedTrajectory = [];
             obj.PlanningStats       = struct('latency_search_ms', 0, 'latency_qp_ms', 0, 'decision_state', 'CRUISE', 'target_speed', cruiseSpeed);
 
-            % 4. Instantiate Ego Vehicle Controller & Mock Actor
-            obj.EgoActor = MockEgoActor([-1.8, 0.0, 0.0], [0.0, cruiseSpeed, 0.0], 90.0);
+            % 4. Instantiate Ego Vehicle Controller & Mock Actor (Cartesian X=forward, Y=lateral)
+            obj.EgoActor = MockEgoActor([0.0, -1.8, 0.0], [cruiseSpeed, 0.0, 0.0], 0.0);
             obj.ControllerInstance = autonomous_ego_controller(waypoints, [], controllerType, cruiseSpeed, obj.dt_controller);
             obj.ControllerInstance.init_state(obj.EgoActor);
 
@@ -628,9 +628,11 @@ classdef AutonomousAVStack < handle
                             w_x = vPos(1) + z_pts * cos(vYaw_rad) - (-x_pts) * sin(vYaw_rad);
                             w_y = vPos(2) + z_pts * sin(vYaw_rad) + (-x_pts) * cos(vYaw_rad);
                             
-                            % Clamp w_y strictly to vehicle's OWN side of the road [-6.2m shoulder to -0.6m center divider]:
-                            % Strictly prevents crossing the centerline into opposing oncoming traffic (Y > 0)
-                            w_y = max(-6.2, min(-0.6, w_y));
+                            % Clamp w_y strictly to vehicle's OWN side of the road if road bounds are defined:
+                            if isprop(obj, 'RoadBounds') && ~isempty(obj.RoadBounds) && numel(obj.RoadBounds) == 2
+                                minB = min(obj.RoadBounds); maxB = max(obj.RoadBounds);
+                                w_y = max(minB, min(maxB, w_y));
+                            end
                             
                             % Stitch planned horizon with global route waypoints to ensure continuity
                             if ~isempty(obj.OriginalWaypoints)
@@ -684,7 +686,7 @@ classdef AutonomousAVStack < handle
         function telemetry = run_closed_loop_control(obj, t, stateflow_decision)
             % Domain 5: 50 Hz Kinematic AEB / ACC & Pure Pursuit Lateral Tracking
             ctrl = obj.ControllerInstance;
-            vx   = obj.EgoActor.Velocity(2);
+            vx   = norm(obj.EgoActor.Velocity(1:2));
 
             % Find closest in-path lead obstacle from fused world model
             leadDist = Inf;
@@ -718,7 +720,7 @@ classdef AutonomousAVStack < handle
                 end
             end
 
-            effClosingSpeed = max(vx, closingVel);
+            effClosingSpeed = max(0.0, closingVel);
 
             % Check if detour corridor (Lane -2 at lateral X in [-4.5, -1.8]) is blocked
             % Indian left-side driving bypasses via outer lane (Lane -2).
@@ -796,17 +798,17 @@ classdef AutonomousAVStack < handle
             [ey, epsi] = ctrl.calc_lateral_error(currentPose(1), currentPose(2), currentPose(3));
             ctrl.LastSteering = deltaCmd;
 
-            % 3. Kinematic Bicycle State Propagation (dt = 0.02s)
+            % 3. Kinematic Bicycle State Propagation (dt = 0.02s) - Cartesian Frame
             dt = obj.dt_base;
             beta = atan((ctrl.lr / ctrl.Wheelbase) * tan(deltaCmd));
-            x_next   = currentPose(1) + vx * sin(currentPose(3) + beta) * dt;
-            z_next   = currentPose(2) + vx * cos(currentPose(3) + beta) * dt;
+            x_next   = currentPose(1) + vx * cos(currentPose(3) + beta) * dt;
+            z_next   = currentPose(2) + vx * sin(currentPose(3) + beta) * dt;
             psi_next = wrapToPi(currentPose(3) + (vx / ctrl.Wheelbase) * cos(beta) * tan(deltaCmd) * dt);
             vx_next  = max(0.0, vx + aCmd * dt);
 
             % Update Ego Actor State
             obj.EgoActor.Position = [x_next, z_next, 0.0];
-            obj.EgoActor.Velocity = [0.0, vx_next, 0.0];
+            obj.EgoActor.Velocity = [vx_next * cos(psi_next + beta), vx_next * sin(psi_next + beta), 0.0];
             obj.EgoActor.Yaw      = rad2deg(psi_next);
             ctrl.CurrentState     = [x_next, z_next, psi_next, vx_next];
 
