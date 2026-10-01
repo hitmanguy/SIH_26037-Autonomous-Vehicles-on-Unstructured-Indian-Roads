@@ -166,7 +166,7 @@ classdef autonomous_ego_controller < handle
             if isfield(planInfo, 'SelectedTargetY')
                 targetLatY = planInfo.SelectedTargetY;
             end
-            isClearLaterally = abs(obj.CurrentState(2) - targetLatY) < 0.60;
+            isClearLaterally = (abs(obj.CurrentState(2) - targetLatY) < 0.60) || (abs(obj.CurrentState(2) - (-1.75)) > 1.40);
 
             % Priority 0 Guard: Check if planner explicitly commanded Emergency Stop or TargetSpeed == 0
             isPlannerStop = (isfield(planInfo, 'IsEmergencyBraking') && planInfo.IsEmergencyBraking) || ...
@@ -175,16 +175,20 @@ classdef autonomous_ego_controller < handle
             if isPlannerStop || minDist <= obj.StopDistance || ttc < 1.4
                 % Critical Emergency Braking (AEB) - absolute contact guard or planner stop command
                 aCmd = obj.MaxDecel;
-            elseif isEvasive && ~isClearLaterally && minDist > 5.5
-                % Lateral evasion underway: maintain safe controlled evasion pace (16 km/h) while steering around
-                targetSpeed = min(obj.CruiseSpeed, 4.44); % 16 km/h steady evasion speed
-                speedErr = targetSpeed - vx;
-                aCmd = max(-2.5, min(1.0, 1.2 * speedErr));
-            elseif isEvasive && isClearLaterally && (minDist >= obj.SafeDistance && ttc >= 3.0)
-                % Successfully transitioned into clear evasion corridor: cruise safely
+            elseif isEvasive && isClearLaterally
+                % Successfully transitioned into clear evasion corridor: cruise safely past hazard
                 dynamicTargetSpeed = obj.CruiseSpeed;
                 speedErr = dynamicTargetSpeed - vx;
                 aCmd = max(-2.5, min(obj.MaxAccel, 1.2 * speedErr));
+            elseif isEvasive && ~isClearLaterally
+                % Lateral evasion underway: maintain safe controlled evasion pace (16 km/h) while steering around
+                if minDist > obj.StopDistance
+                    targetSpeed = min(obj.CruiseSpeed, 4.44); % 16 km/h steady evasion speed
+                    speedErr = targetSpeed - vx;
+                    aCmd = max(-2.5, min(1.0, 1.2 * speedErr));
+                else
+                    aCmd = obj.MaxDecel;
+                end
             elseif minDist < obj.SafeDistance || ttc < 3.2
                 % First-principles kinematic stopping equation:
                 % v_f^2 = v_0^2 + 2 * a * d  =>  a_req = -v_0^2 / (2 * (d - d_stop))

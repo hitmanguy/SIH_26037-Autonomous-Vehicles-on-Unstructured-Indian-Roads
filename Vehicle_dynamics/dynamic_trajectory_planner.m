@@ -31,8 +31,8 @@ classdef dynamic_trajectory_planner < handle
         Length              = 4.50            % (m)
         Width               = 2.00            % (m)
         
-        % Planning Horizons & Sampling
-        Horizons            = [2.0, 3.0, 4.0] % Candidate trajectory durations T [s]
+        % Planning Horizons & Sampling (Agile, crisp turns without lazy wide arcs)
+        Horizons            = [1.2, 1.8, 2.5] % Candidate trajectory durations T [s]
         TargetSpeed         = 6.94            % Nominal cruise speed (m/s) ~ 25 km/h
         PlanHorizonMeters   = 50.0            % Spatial lookahead distance (m)
         ReplanDistance      = 0.50            % Waypoint spatial discretization (m)
@@ -207,7 +207,7 @@ classdef dynamic_trajectory_planner < handle
 
                     % Lane 1 blockage check (nominal cruising corridor)
                     obsLatDistLane1 = abs(obs.Y - nominalY);
-                    corridorHalfWidth1 = (obj.Width + obs.Width)/2 + 0.45;
+                    corridorHalfWidth1 = min(1.40, (obj.Width + obs.Width)/2 + 0.35);
                     if obsLatDistLane1 < corridorHalfWidth1
                         lane1Blocked = true;
                         if distToObs < critObstacleDist
@@ -217,9 +217,10 @@ classdef dynamic_trajectory_planner < handle
                     end
 
                     % Lane 2 blockage check (outer passing/detour corridor)
+                    % Only blocks Lane 2 if obstacle actually occupies Lane 2 and is within active horizon
                     obsLatDistLane2 = abs(obs.Y - obj.PassingLaneY);
-                    corridorHalfWidth2 = (obj.Width + obs.Width)/2 + 0.45;
-                    if obsLatDistLane2 < corridorHalfWidth2
+                    corridorHalfWidth2 = min(1.40, (obj.Width + obs.Width)/2 + 0.35);
+                    if obsLatDistLane2 < corridorHalfWidth2 && distToObs < 30.0
                         lane2Blocked = true;
                     end
                 end
@@ -261,10 +262,10 @@ classdef dynamic_trajectory_planner < handle
 
             candTargets = [];
             if obj.LaneCommitted
-                candTargets = [obj.PassingLaneY, obj.PassingLaneY - 0.40, obj.PassingLaneY + 0.50, nominalY];
+                candTargets = [obj.PassingLaneY, obj.PassingLaneY - 0.40, obj.PassingLaneY + 0.50, -3.50, -4.20, nominalY];
                 preferredTargetY = obj.PassingLaneY;
             elseif lane1Blocked && ~lane2Blocked
-                candTargets = [obj.PassingLaneY, obj.PassingLaneY - 0.40, obj.PassingLaneY + 0.50, -3.50];
+                candTargets = [obj.PassingLaneY, obj.PassingLaneY - 0.40, obj.PassingLaneY + 0.50, -4.20, -3.50];
                 preferredTargetY = obj.PassingLaneY;
             elseif lane1Blocked && lane2Blocked
                 % Both corridors blocked (e.g. crossing VRU with shoulder parked cars, or wrong-way vehicle)
@@ -273,7 +274,7 @@ classdef dynamic_trajectory_planner < handle
                 preferredTargetY = d0;
             else
                 % Road clear: follow nominal cruising route with minor dynamic nudges
-                candTargets = [nominalY, nominalY - 0.40, nominalY + 0.40];
+                candTargets = [nominalY, nominalY - 0.35, nominalY + 0.35];
                 preferredTargetY = nominalY;
             end
 
@@ -295,7 +296,7 @@ classdef dynamic_trajectory_planner < handle
             bestCost = Inf;
             bestTrajectory = [];
             bestTargetY = preferredTargetY;
-            bestHorizonT = 3.0;
+            bestHorizonT = 1.8;
 
             for tIdx = 1:numel(validTargets)
                 d1 = validTargets(tIdx);
@@ -326,8 +327,8 @@ classdef dynamic_trajectory_planner < handle
                     if isCollision
                         totalCost = totalCost + obj.w_collision;
                     else
-                        if minClearance < 3.5
-                            totalCost = totalCost + 150.0 / max(0.5, minClearance);
+                        if minClearance < 2.5
+                            totalCost = totalCost + 80.0 / max(0.4, minClearance);
                         end
                     end
 
@@ -341,15 +342,27 @@ classdef dynamic_trajectory_planner < handle
             end
 
             % 5. Impassable Corridor Detection & Emergency Braking
-            % If all candidate trajectories collide (bestCost >= 0.5 * w_collision), NO safe lateral corridor exists.
-            % DO NOT force a collision or swerve into parked cars/oncoming traffic! Initiate safe AEB to standstill!
+            % Emergency stop (speed = 0) is commanded ONLY if no safe trajectory exists
+            % AND obstacle is within critical immediate stopping distance (< 12m or TTC < 2.0s).
+            % If obstacle is further ahead (> 12m), perform a controlled detour crawl (14 km/h) to steer around.
             isEmergencyStop = false;
             if isempty(bestTrajectory) || bestCost >= 0.5 * obj.w_collision
-                isEmergencyStop = true;
-                effectiveTargetSpeed = 0.0;
-                bestTargetY = max(obj.OuterShoulderY + 0.60, min(obj.CenterDividerY - 0.40, d0));
-                bestHorizonT = 3.0;
-                bestTrajectory = obj.solve_quintic(d0, dot_d0, 0.0, bestTargetY, bestHorizonT);
+                if critObstacleDist < 12.0 || (critObstacleDist / max(0.5, v0)) < 2.0
+                    isEmergencyStop = true;
+                    effectiveTargetSpeed = 0.0;
+                    bestTargetY = max(obj.OuterShoulderY + 0.60, min(obj.CenterDividerY - 0.40, d0));
+                    bestHorizonT = 2.0;
+                    bestTrajectory = obj.solve_quintic(d0, dot_d0, 0.0, bestTargetY, bestHorizonT);
+                else
+                    % Advance crawl: maintain 14 km/h pace to allow agile bypass
+                    effectiveTargetSpeed = min(effectiveTargetSpeed, 3.89);
+                    bestTargetY = obj.PassingLaneY;
+                    bestHorizonT = 1.8;
+                    bestTrajectory = obj.solve_quintic(d0, dot_d0, 0.0, bestTargetY, bestHorizonT);
+                end
+            elseif obj.LaneCommitted || (lane1Blocked && ~lane2Blocked)
+                % When executing an evasive maneuver, maintain stable turning pace (16 km/h)
+                effectiveTargetSpeed = min(effectiveTargetSpeed, 4.44);
             end
 
             obj.LastTargetY = bestTargetY;
@@ -505,9 +518,9 @@ classdef dynamic_trajectory_planner < handle
                             x_obs = mMode.X(stepIdx);
                             y_obs = mMode.Y(stepIdx);
 
-                            % Elliptical safety boundary
-                            a_safe = (obj.Length + obs.Length)/2 + 2.0 + 0.25 * v0;
-                            b_safe = (obj.Width + obs.Width)/2 + 0.70;
+                            % Elliptical safety boundary (Indian urban road lateral margin 0.35m)
+                            a_safe = (obj.Length + obs.Length)/2 + 1.2 + 0.15 * v0;
+                            b_safe = (obj.Width + obs.Width)/2 + 0.35;
 
                             distNorm = hypot((x_ego - x_obs)/a_safe, (y_ego - y_obs)/b_safe);
                             physicalDist = hypot(x_ego - x_obs, y_ego - y_obs);
@@ -524,9 +537,9 @@ classdef dynamic_trajectory_planner < handle
                         x_obs = obs.X + obs.Vx * t;
                         y_obs = obs.Y + obs.Vy * t;
 
-                        % Elliptical safety boundary
-                        a_safe = (obj.Length + obs.Length)/2 + 2.0 + 0.25 * v0; % Longitudinal clearance
-                        b_safe = (obj.Width + obs.Width)/2 + 0.70;             % Lateral clearance
+                        % Elliptical safety boundary (Indian urban road lateral margin 0.35m)
+                        a_safe = (obj.Length + obs.Length)/2 + 1.2 + 0.15 * v0; % Longitudinal clearance
+                        b_safe = (obj.Width + obs.Width)/2 + 0.35;             % Lateral clearance
 
                         distNorm = hypot((x_ego - x_obs)/a_safe, (y_ego - y_obs)/b_safe);
                         physicalDist = hypot(x_ego - x_obs, y_ego - y_obs);

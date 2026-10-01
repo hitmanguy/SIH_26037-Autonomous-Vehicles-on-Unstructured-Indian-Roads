@@ -13,16 +13,16 @@ classdef pure_pursuit_controller < handle
         Waypoints            % Nx2 reference path waypoints [X, Y]
         Wheelbase = 2.8      % Vehicle wheelbase L (meters)
         lr = 1.6             % CG to rear axle distance (meters)
-        MinLookahead = 3.5   % Minimum lookahead distance (meters)
-        MaxLookahead = 9.5   % Maximum lookahead distance (meters)
-        LookaheadGain = 0.42 % Speed scaling factor (seconds)
-        MaxSteering = 0.45   % Maximum front steering angle (rad) ~ 25.8 deg
-        MaxSteerRate = 0.35  % Maximum steering rate (rad/s)
+        MinLookahead = 2.0   % Minimum lookahead distance (meters) - tight agile turning
+        MaxLookahead = 7.0   % Maximum lookahead distance (meters)
+        LookaheadGain = 0.35 % Speed scaling factor (seconds)
+        MaxSteering = 0.61   % Maximum front steering angle (rad) ~ 35.0 deg
+        MaxSteerRate = 1.05  % Maximum steering rate (rad/s) ~ 60.0 deg/s for fast crisp avoidance
         
         % State Memory & Output Filter
         LastSteering = 0.0   % Previous steering command (rad)
         FilteredSteering = 0.0
-        PredictionTime = 0.20% Lookahead preview time for predictor (seconds)
+        PredictionTime = 0.12% Lookahead preview time for predictor (seconds)
         Ts = 0.05            % Sample time (seconds)
     end
 
@@ -89,7 +89,12 @@ classdef pure_pursuit_controller < handle
                 tangentYaw = 0.0;
             end
 
-            % 2. Kinematic Pose Predictor (t_pred = 0.20s)
+            % 2. Cross-Track Error & Heading Error
+            dx = x - refPt(1); dy = y - refPt(2);
+            ey = -sin(tangentYaw) * dx + cos(tangentYaw) * dy;
+            epsi = wrapToPi(yaw - tangentYaw);
+
+            % 3. Kinematic Pose Predictor (t_pred = 0.12s)
             prevDelta = obj.LastSteering;
             beta = atan((obj.lr / obj.Wheelbase) * tan(prevDelta));
             tPred = obj.PredictionTime;
@@ -98,11 +103,17 @@ classdef pure_pursuit_controller < handle
             yPred = y + vx * sin(yaw + beta) * tPred;
             yawPred = wrapToPi(yaw + (vx / obj.Wheelbase) * cos(beta) * tan(prevDelta) * tPred);
 
-            % 3. Adaptive Lookahead Distance with Curvature Coupling
-            rawLd = (obj.LookaheadGain * vx) / (1.0 + 2.0 * abs(curvature));
-            Ld = max(obj.MinLookahead, min(obj.MaxLookahead, rawLd));
+            % 4. Adaptive Lookahead Distance with Curvature & Cross-Track Error Coupling
+            % When executing a lane change or curve (|ey| > 0.20m), shrink Ld tightly (2.0 - 4.2m)
+            % to eliminate large sweeping curves and track turns crisply!
+            if abs(ey) > 0.20 || abs(curvature) > 0.02
+                Ld = max(2.0, min(4.2, 0.28 * vx));
+            else
+                rawLd = (obj.LookaheadGain * vx) / (1.0 + 1.5 * abs(curvature));
+                Ld = max(obj.MinLookahead, min(obj.MaxLookahead, rawLd));
+            end
 
-            % 4. Search Forward along Reference Path for Lookahead Target
+            % 5. Search Forward along Reference Path for Lookahead Target
             distsFromPred = hypot(wps(:, 1) - xPred, wps(:, 2) - yPred);
             foundTarget = false;
             targetIdx = closestIdx;
@@ -120,38 +131,33 @@ classdef pure_pursuit_controller < handle
                 lookaheadPt = wps(targetIdx, 1:2);
             else
                 % Continuous Tangent Extrapolation at Path Boundary
-                % Prevents lookahead target from falling behind vehicle, eliminating end-of-path swerving
                 endPt = wps(N, 1:2);
                 pastDist = (xPred - endPt(1)) * tangentUnit(1) + (yPred - endPt(2)) * tangentUnit(2);
                 forwardDist = max(Ld, pastDist + Ld);
                 lookaheadPt = endPt + forwardDist * tangentUnit;
             end
 
-            % 5. Pure Pursuit Feedback Term
+            % 6. Pure Pursuit Feedback Term
             gx = lookaheadPt(1); gy = lookaheadPt(2);
             alpha = wrapToPi(atan2(gy - yPred, gx - xPred) - yawPred);
             delta_pp = atan2(2.0 * obj.Wheelbase * sin(alpha), max(1.0, Ld));
 
-            % 6. Stanley Cross-Track Error Damping Term
-            dx = x - refPt(1); dy = y - refPt(2);
-            ey = -sin(tangentYaw) * dx + cos(tangentYaw) * dy;
-            epsi = wrapToPi(yaw - tangentYaw);
-            
-            k_stanley = 0.35;
+            % 7. Stanley Cross-Track Error Damping Term
+            k_stanley = 0.40;
             delta_stanley = -atan(k_stanley * ey / (vx + 1.0));
 
-            % 7. Curvature Feedforward Steering
+            % 8. Curvature Feedforward Steering
             delta_ff = atan(obj.Wheelbase * curvature);
 
             % Combined Tri-Hybrid Command
-            rawDelta = delta_pp + delta_stanley + 0.65 * delta_ff;
+            rawDelta = delta_pp + delta_stanley + 0.75 * delta_ff;
 
-            % 8. Slew Rate Limiting & Command Smoothing
+            % 9. Slew Rate Limiting & Command Smoothing
             dDeltaMax = obj.MaxSteerRate * obj.Ts;
             deltaDelta = max(-dDeltaMax, min(dDeltaMax, rawDelta - obj.LastSteering));
             unfiltDelta = obj.LastSteering + deltaDelta;
 
-            obj.FilteredSteering = 0.85 * unfiltDelta + 0.15 * obj.FilteredSteering;
+            obj.FilteredSteering = 0.95 * unfiltDelta + 0.05 * obj.FilteredSteering;
             deltaCmd = max(-obj.MaxSteering, min(obj.MaxSteering, obj.FilteredSteering));
             obj.LastSteering = deltaCmd;
         end

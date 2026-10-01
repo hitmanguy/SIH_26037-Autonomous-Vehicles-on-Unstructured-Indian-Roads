@@ -720,13 +720,12 @@ classdef AutonomousAVStack < handle
 
             effClosingSpeed = max(vx, closingVel);
 
-            % Check if right-side detour corridor (Lane -2) is blocked by an obstacle
-            % In Indian road (left-side driving), detour corridor is to the RIGHT (Lane -2).
-            % It is blocked ONLY if an obstacle actually occupies the right lane (X > 1.5 in body frame, ahead within 35m)
+            % Check if detour corridor (Lane -2 at lateral X in [-4.5, -1.8]) is blocked
+            % Indian left-side driving bypasses via outer lane (Lane -2).
             detourCorridorBlocked = false;
             for k = 1:length(obj.FusedWorldModel.tracks)
                 trk = obj.FusedWorldModel.tracks(k);
-                if trk.X > 1.5 && trk.Z > -2.0 && trk.Z < 35.0
+                if trk.X < -1.8 && trk.X > -4.5 && trk.Z > 0.5 && trk.Z < 25.0
                     detourCorridorBlocked = true;
                     break;
                 end
@@ -1114,13 +1113,12 @@ classdef AutonomousAVStack < handle
 
             effClosingSpeed = max(vx, closingVel);
 
-            % Check if right-side detour corridor (Lane -2) is blocked by an obstacle
-            % In Indian road (left-side driving), detour corridor is to the RIGHT (Lane -2).
-            % It is blocked ONLY if an obstacle actually occupies the right lane (X > 1.5 in body frame, ahead within 35m)
+            % Check if detour corridor (Lane -2 at lateral X in [-4.5, -1.8]) is blocked
+            % Indian left-side driving bypasses via outer lane (Lane -2).
             detourCorridorBlocked = false;
             for k = 1:length(obj.FusedWorldModel.tracks)
                 trk = obj.FusedWorldModel.tracks(k);
-                if trk.X > 1.5 && trk.Z > -2.0 && trk.Z < 35.0
+                if trk.X < -1.8 && trk.X > -4.5 && trk.Z > 0.5 && trk.Z < 25.0
                     detourCorridorBlocked = true;
                     break;
                 end

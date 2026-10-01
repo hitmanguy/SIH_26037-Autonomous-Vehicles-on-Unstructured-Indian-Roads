@@ -26,18 +26,18 @@ classdef mpc_lane_controller < handle
         Cr = 33000           % Rear cornering stiffness (N/rad)
         Wheelbase = 2.8      % Total wheelbase L (m)
         
-        % Physical Constraints
-        MaxSteering = 0.45   % Max front wheel angle (rad) ~ 25.8 deg
-        MaxSteerRate = 0.35  % Max steering slew rate (rad/s) ~ 20 deg/s
+        % Physical Constraints (Agile, crisp steering authority)
+        MaxSteering = 0.61   % Max front wheel angle (rad) ~ 35.0 deg
+        MaxSteerRate = 1.05  % Max steering slew rate (rad/s) ~ 60 deg/s
         
-        % Cost Function Weights (Tier-1 Autonomous Luxury Damped Tuning)
-        Q_ey = 3.5           % Penalty on lateral cross-track error
+        % Cost Function Weights (Agile, tightly tracking tuning)
+        Q_ey = 5.0           % Penalty on lateral cross-track error
         Q_dey = 0.6          % Damping on lateral error rate
         Q_epsi = 6.0         % Penalty on heading angle error
         Q_depsi = 0.6        % Damping on yaw rate error
         Q_int = 0.8          % Integral action weight (eliminates steady-state bias)
-        R_delta = 8.0        % Penalty on absolute steering effort
-        R_ddelta = 40.0      % Penalty on steering slew rate (comfort)
+        R_delta = 6.0        % Penalty on absolute steering effort
+        R_ddelta = 12.0      % Penalty on steering slew rate (comfort)
         
         % State Memory & Integrator
         LastDelta = 0.0      % Previous steering command (rad)
