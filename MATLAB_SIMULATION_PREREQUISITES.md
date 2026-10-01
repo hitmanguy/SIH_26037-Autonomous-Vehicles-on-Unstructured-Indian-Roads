@@ -118,6 +118,18 @@ This document lists all required MATLAB toolboxes and every file needed to start
 
 ---
 
+### H. Closed-Loop Simulink & RoadRunner Simulation (`Simulink_Simulation/`)
+- **[`Simulink_Simulation/setup_simulink_simulation.m`](file:///Users/test/Desktop/SIH/SIH_26037-Autonomous-Vehicles-on-Unstructured-Indian-Roads/Simulink_Simulation/setup_simulink_simulation.m)**  
+  Master initialization script configuring multi-rate clocks ($100\text{ Hz}$ dynamics, $50\text{ Hz}$ control, $20\text{ Hz}$ fusion, $10\text{ Hz}$ planning), all 7 Simulink Bus objects, vehicle parameters, and RoadRunner co-simulation tokens.
+- **[`Simulink_Simulation/build_closed_loop_model.m`](file:///Users/test/Desktop/SIH/SIH_26037-Autonomous-Vehicles-on-Unstructured-Indian-Roads/Simulink_Simulation/build_closed_loop_model.m)**  
+  Programmatic Simulink model generator compiling `SIH26037_ClosedLoop_EgoSimulator.slx` connecting all 8 subsystems in closed loop.
+- **[`Simulink_Simulation/run_closed_loop_simulation.m`](file:///Users/test/Desktop/SIH/SIH_26037-Autonomous-Vehicles-on-Unstructured-Indian-Roads/Simulink_Simulation/run_closed_loop_simulation.m)**  
+  Automated multi-rate closed-loop simulation runner executing OpenSCENARIO scenarios, logging real-time telemetry, and plotting bird's-eye view trajectories.
+- **[`Simulink_Simulation/test_simulink_pipeline.py`](file:///Users/test/Desktop/SIH/SIH_26037-Autonomous-Vehicles-on-Unstructured-Indian-Roads/Simulink_Simulation/test_simulink_pipeline.py)**  
+  Unit test suite validating multi-rate clock synchronization, bicycle model kinematics, Pure Pursuit lateral convergence, and emergency braking buffers.
+
+---
+
 ## 3. How to Launch Simulation in MATLAB
 
 In the MATLAB Command Window, run:

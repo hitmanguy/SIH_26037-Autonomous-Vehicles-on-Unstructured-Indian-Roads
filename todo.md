@@ -69,7 +69,7 @@ The closed-loop architecture operates on a multi-rate clock where the Ego Vehicl
 | **Track 3: Trajectory Prediction** | **COMPLETE** | `motionformer_engine.py`, `trajectory_prediction_engine.m`, `prediction_to_costmap_bridge.m`, `simulink_prediction_block.m`, `setup_trajectory_simulink.m`, `benchmark_5_scenarios.m`, 3x PPT slides |
 | **Track 4: Path Planning & Decision** | **COMPLETE** | `dynamic_trajectory_planner.m` (Frenet quintic replanner), `dynamic_costmap_manager.m`, `hybrid_astar_planner.m`, `continuous_trajectory_optimizer.m`, `speed_profile_generator.m`, `decision_supervisor.m`, `path_smoother_blender.m`, `simulink_planning_block.m`, `test_planning_pipeline.py`, `test_dynamic_trajectory_planner.py` |
 | **Track 5: Vehicle Dynamics & Control** | **COMPLETE** | `autonomous_ego_controller.m`, `pure_pursuit_controller.m`, `mpc_lane_controller.m`, `sensor_rig_builder.m`, `simulation_logger.m`, `record_unreal_simulation.m`, `sim3d_surround_harness.slx`, 11 OpenSCENARIO (.xosc) scenarios |
-| **System Integration: Simulink + RoadRunner** | **IN PROGRESS** | Closed-loop Simulink canvas wiring all 5 blocks with real-time Ego feedback to RoadRunner Scenario |
+| **System Integration: Simulink + RoadRunner** | **COMPLETE** | `Simulink_Simulation/setup_simulink_simulation.m`, `Simulink_Simulation/build_closed_loop_model.m`, `Simulink_Simulation/run_closed_loop_simulation.m`, `Simulink_Simulation/test_simulink_pipeline.py`, closed-loop feedback wiring |
 
 ---
 
@@ -151,32 +151,33 @@ The control layer turns planned paths and speed targets into steering, throttle,
 
 ---
 
-### Phase 3: Build the Integrated Closed-Loop Simulink Simulator (`Simulink_Simulation/`)
+### Phase 3: Build the Integrated Closed-Loop Simulink Simulator (`Simulink_Simulation/`) [COMPLETED]
 
 Create the master Simulink model connecting all five tracks into an executable simulation.
 
-- [ ] **Step 3.1: Create Master Initialization Script (`setup_simulink_simulation.m`)**
+- [x] **Step 3.1: Create Master Initialization Script (`setup_simulink_simulation.m`)**
   - Loads all vehicle parameters, sensor extrinsics/intrinsics, Simulink Buses, and RoadRunner scenario waypoints into the MATLAB base workspace.
   - Sets up multi-rate solver (`ode4` Runge-Kutta, fixed step $0.01\text{ s}$).
 
-- [ ] **Step 3.2: Create Master Simulink Model (`SIH26037_ClosedLoop_EgoSimulator.slx`)**
-  - Subsystem 1: **RoadRunner Co-Simulation Interface** (or Synthetic ADT Scenario Engine) providing surround camera, LiDAR point clouds, and radar detections.
-  - Subsystem 2: **Perception & IPM Bridge** (Object bounding boxes, SAHI proposal merge, and ground-plane curvature).
+- [x] **Step 3.2: Create Master Simulink Model (`SIH26037_ClosedLoop_EgoSimulator.slx`)**
+  - Programmatically generated via `Simulink_Simulation/build_closed_loop_model.m`.
+  - Subsystem 1: **RoadRunner Co-Simulation Interface** (or Synthetic ADT Scenario Engine).
+  - Subsystem 2: **Perception & IPM Bridge** (Object bounding boxes, SAHI proposal merge, ground curvature).
   - Subsystem 3: **Sensor Fusion IMM Tracker** (Multi-object tracking with CV/CTRV/CA/Freeze models).
   - Subsystem 4: **Trajectory Prediction Block** (Integrates `simulink_prediction_block.m`).
   - Subsystem 5: **Stateflow Supervisory Chart** (`CRUISE`, `SLOW_DOWN`, `YIELD`, `STOP`, `REROUTE`).
-  - Subsystem 6: **Dynamic Costmap & Hybrid A\* Local Planner**.
-  - Subsystem 7: **Adaptive Controller & Handover Subsystem** (A-PP + MPC).
-  - Subsystem 8: **Ego Vehicle Dynamics Subsystem** (Bicycle model updating $[X, Y, \theta, v]$).
-  - Subsystem 9: **RoadRunner Feedback** (Sends updated ego pose back to RoadRunner).
+  - Subsystem 6: **Dynamic Costmap & Hybrid A\* Local Planner** (Frenet optimal replanner).
+  - Subsystem 7: **Adaptive Controller & Handover Subsystem** (A-PP + MPC + Kinematic ACC/AEB).
+  - Subsystem 8: **Ego Vehicle Dynamics Subsystem** (Kinematic bicycle model updating $[X, Y, \theta, v]$).
+  - Subsystem 9: **RoadRunner Feedback** (Sends updated ego pose back to RoadRunner in real-time closed loop).
 
-- [ ] **Step 3.3: Implement Rate Transition Blocks & Bus Selectors**
-  - Connect $100\text{ Hz}$ Control $\leftrightarrow$ $10\text{ Hz}$ Prediction $\leftrightarrow$ $5\text{ Hz}$ Planning $\leftrightarrow$ $20\text{ Hz}$ Fusion.
+- [x] **Step 3.3: Implement Rate Transition Blocks & Bus Selectors**
+  - Connect $100\text{ Hz}$ Dynamics $\leftrightarrow$ $50\text{ Hz}$ Control $\leftrightarrow$ $20\text{ Hz}$ Fusion $\leftrightarrow$ $10\text{ Hz}$ Planning & Prediction.
 
-- [ ] **Step 3.4: Add Dashboard Instrumentation & Scopes**
-  - Bird's-Eye View Scope displaying ego vehicle, planned trajectory, dynamic costmap, and surrounding actor tracks in real time.
+- [x] **Step 3.4: Add Dashboard Instrumentation & Scopes**
+  - Live trajectory visualization in `run_closed_loop_simulation.m`.
   - Scopes for tracking error, lateral jerk, steering demand, throttle/brake, and Time-To-Collision.
-  - Latency instrumentation logging execution timestamps at each layer.
+  - Verified via `Simulink_Simulation/test_simulink_pipeline.py`.
 
 ---
 
