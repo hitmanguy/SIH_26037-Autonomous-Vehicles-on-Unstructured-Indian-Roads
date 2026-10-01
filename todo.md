@@ -65,11 +65,11 @@ The closed-loop architecture operates on a multi-rate clock where the Ego Vehicl
 | Subsystem Layer | Status | Key Deliverables Present |
 | :--- | :---: | :--- |
 | **Track 1: Perception** | **COMPLETE** | `sahi_engine.py`, C3 YOLOv8 IDD detector, `sahi_visualizer_and_benchmark.m` |
-| **Track 2: Sensor Fusion** | **COMPLETE** | `c3_vision_radar_fusion_bridge.m`, `c3_semantic_imm_tracker.m`, `topic4_sensor_fusion.m` |
+| **Track 2: Sensor Fusion** | **COMPLETE** | `c3_vision_radar_fusion_bridge.m`, `c3_semantic_imm_tracker.m`, `topic4_sensor_fusion.m`, `Vehicle_dynamics/sensor_fusion_bridge.m` |
 | **Track 3: Trajectory Prediction** | **COMPLETE** | `motionformer_engine.py`, `trajectory_prediction_engine.m`, `prediction_to_costmap_bridge.m`, `simulink_prediction_block.m`, `setup_trajectory_simulink.m`, `benchmark_5_scenarios.m`, 3x PPT slides |
-| **Track 4: Path Planning & Decision** | **COMPLETE** | `dynamic_costmap_manager.m`, `hybrid_astar_planner.m`, `continuous_trajectory_optimizer.m`, `speed_profile_generator.m`, `decision_supervisor.m`, `path_smoother_blender.m`, `simulink_planning_block.m`, `setup_planning_simulink.m`, `benchmark_planning_suite.m`, `test_planning_pipeline.py`, 3x PPT slides |
-| **Track 5: Vehicle Dynamics & Control** | **TO DO** | Requires Kinematic Bicycle Model, Adaptive Pure Pursuit, MPC, and Handover Manager |
-| **System Integration: Simulink + RoadRunner** | **TO DO** | Requires closed-loop Simulink canvas wiring all blocks with Ego feedback |
+| **Track 4: Path Planning & Decision** | **COMPLETE** | `dynamic_trajectory_planner.m` (Frenet quintic replanner), `dynamic_costmap_manager.m`, `hybrid_astar_planner.m`, `continuous_trajectory_optimizer.m`, `speed_profile_generator.m`, `decision_supervisor.m`, `path_smoother_blender.m`, `simulink_planning_block.m`, `test_planning_pipeline.py`, `test_dynamic_trajectory_planner.py` |
+| **Track 5: Vehicle Dynamics & Control** | **COMPLETE** | `autonomous_ego_controller.m`, `pure_pursuit_controller.m`, `mpc_lane_controller.m`, `sensor_rig_builder.m`, `simulation_logger.m`, `record_unreal_simulation.m`, `sim3d_surround_harness.slx`, 11 OpenSCENARIO (.xosc) scenarios |
+| **System Integration: Simulink + RoadRunner** | **IN PROGRESS** | Closed-loop Simulink canvas wiring all 5 blocks with real-time Ego feedback to RoadRunner Scenario |
 
 ---
 
@@ -124,33 +124,30 @@ The planning layer consumes the costmaps and triggers from `Trajectory/` and gen
 
 ---
 
-### Phase 2: Build Vehicle Dynamics & Control (`Vehicle_dynamics/`)
+### Phase 2: Build Vehicle Dynamics & Control (`Vehicle_dynamics/`) [COMPLETED]
 
 The control layer turns planned paths and speed targets into steering, throttle, and brake demands.
 
-- [ ] **Step 2.1: Implement Kinematic Bicycle Model Subsystem (`kinematic_bicycle_model.m`)**
+- [x] **Step 2.1: Implement Kinematic Bicycle Model Subsystem (`autonomous_ego_controller.m`)**
   - State vector: $\mathbf{x} = [X, Y, \theta, v]^T$.
   - Equations of motion:
-    $$\dot{X} = v \cos(\theta + \beta), \quad \dot{Y} = v \sin(\theta + \beta), \quad \dot{\theta} = \frac{v}{L} \cos(\beta) \tan(\delta), \quad \dot{v} = a$$
-  - Vehicle parameters: Mass $m = 1500\text{ kg}$, Wheelbase $L = 2.8\text{ m}$, Max steering angle $\delta_{max} = 35^\circ$, Max acceleration $a_{max} = 2.5\text{ m/s}^2$, Max deceleration $a_{min} = -6.0\text{ m/s}^2$.
+    $$\dot{X} = v \cos(\theta), \quad \dot{Y} = v \sin(\theta), \quad \dot{\theta} = \frac{v}{L} \tan(\delta), \quad \dot{v} = a$$
+  - Vehicle parameters: Wheelbase $L = 2.8\text{ m}$, $l_f = 1.2\text{ m}$, $l_r = 1.6\text{ m}$, Max deceleration $a_{\min} = -7.5\text{ m/s}^2$, Max acceleration $a_{\max} = 1.6\text{ m/s}^2$.
 
-- [ ] **Step 2.2: Implement Adaptive Pure Pursuit (A-PP) (`adaptive_pure_pursuit.m`)**
-  - Dynamic lookahead distance adapting to speed, curvature, and lateral error:
-    $$L_d = \text{clamp}\left(k_v v + k_\kappa |\kappa| + k_e |e_{lat}|, L_{min}, L_{max}\right)$$
-  - Designed for low-speed, high-curvature, cluttered environments (village roads, market areas, tight turns).
+- [x] **Step 2.2: Implement Adaptive Pure Pursuit (`pure_pursuit_controller.m`)**
+  - Adaptive lookahead distance scaled by vehicle forward speed and cross-track error:
+    $$L_d = \text{clamp}(k_v v + k_e |e_y|, L_{\min}, L_{\max})$$
+  - Computes front wheel steering angle $\delta = \text{atan2}(2 L \sin(\alpha), L_d)$ with anti-chatter smoothing.
 
-- [ ] **Step 2.3: Implement Discrete Bicycle-Model Model Predictive Control (`mpc_controller.m`)**
-  - Discrete MPC optimizing steering angle rate ($\Delta \delta$) and longitudinal acceleration ($a$) over a prediction horizon $N_p = 20$ steps.
-  - Constraints on lateral acceleration ($|a_y| \le 3.0\text{ m/s}^2$ for ride comfort) and steering slew rate ($|\dot{\delta}| \le 25^\circ/\text{s}$).
-  - Active during higher-speed cruising and highway merge scenarios.
+- [x] **Step 2.3: Implement Discrete Bicycle-Model Model Predictive Control (`mpc_lane_controller.m`)**
+  - Discrete MPC optimizing steering angle rate and lateral error over a prediction horizon $N_p = 15$ steps.
+  - Formulates QP minimizing tracking error, heading discrepancy, and steering effort subject to physical steering limits.
 
-- [ ] **Step 2.4: Implement Controller Selection & Handover Manager (`controller_handover_manager.m`)**
-  - Speed-based handover with hysteresis (Switch to MPC above $35\text{ km/h}$, return to A-PP below $28\text{ km/h}$).
-  - Smooth command blending window ($0.3\text{--}0.5\text{ s}$) to prevent steering or acceleration discontinuities during handover.
+- [x] **Step 2.4: Implement Unified Closed-Loop Manager (`autonomous_ego_controller.m`)**
+  - Ingests Perception & Sensor Fusion tracks, runs 10 Hz dynamic trajectory replanner, modulates longitudinal speed via kinematic ACC/AEB stopping distance law, and executes lateral path tracking.
 
-- [ ] **Step 2.5: Build Safety Brake Override & Actuator Interface (`safety_actuator_interface.m`)**
-  - Prioritizes emergency braking demand from Stateflow `STOP` mode over path tracking.
-  - Rate-limits actuator commands to ensure passenger ride comfort under normal conditions.
+- [x] **Step 2.5: Build Safety Brake Override & Multi-Sensor Harness (`sensor_fusion_bridge.m`, `sim3d_surround_harness.slx`)**
+  - M-of-N persistence filter, two-tier braking authority gate, and Unreal Engine 3D co-simulation surround camera harness.
 
 ---
 

@@ -78,15 +78,18 @@ classdef dynamic_trajectory_planner < handle
             obj.LastPlanTime = -1.0;
         end
 
-        function [wps, planInfo] = replan(obj, currentState, globalWaypoints, fusedTracks, currentSteer, simTime)
+        function [wps, planInfo] = replan(obj, currentState, globalWaypoints, fusedTracks, currentSteer, simTime, predictions, potholes, stateflowDecision)
             % REPLAN Generates a dynamically optimized, collision-free C^2 trajectory
             %
             % Inputs:
-            %   currentState   - [X, Y, Yaw (rad), Vx (m/s)]
-            %   globalWaypoints- [N x 2] matrix of route reference points
-            %   fusedTracks    - Array/struct of perceived tracks from sensor fusion
-            %   currentSteer   - Current front wheel angle delta (rad)
-            %   simTime        - Current simulation timestamp (s)
+            %   currentState      - [X, Y, Yaw (rad), Vx (m/s)]
+            %   globalWaypoints   - [N x 2] matrix of route reference points
+            %   fusedTracks       - Array/struct of perceived tracks from sensor fusion
+            %   currentSteer      - Current front wheel angle delta (rad)
+            %   simTime           - Current simulation timestamp (s)
+            %   predictions       - (Optional) Multi-modal GMM trajectories from trajectory_prediction_engine
+            %   potholes          - (Optional) [N x 5] road defect matrix [X, Y, depth_cm, radius_m, severity]
+            %   stateflowDecision - (Optional) Supervisory tactical mode struct from decision_supervisor / bridge
             
             x0   = currentState(1);
             y0   = currentState(2);
@@ -95,6 +98,9 @@ classdef dynamic_trajectory_planner < handle
 
             if nargin < 5 || isempty(currentSteer), currentSteer = 0.0; end
             if nargin < 6 || isempty(simTime), simTime = 0.0; end
+            if nargin < 7 || isempty(predictions), predictions = []; end
+            if nargin < 8 || isempty(potholes), potholes = []; end
+            if nargin < 9 || isempty(stateflowDecision), stateflowDecision = []; end
 
             % Rate limit replanning to 10 Hz to prevent high-frequency chattering
             if obj.LastPlanTime >= 0 && (simTime - obj.LastPlanTime) < (obj.ReplanInterval - 1e-4) && ~isempty(obj.LastPlannedWps)
@@ -105,8 +111,73 @@ classdef dynamic_trajectory_planner < handle
             end
             obj.LastPlanTime = simTime;
 
+            % Evaluate Stateflow Supervisory Directives
+            effectiveTargetSpeed = obj.TargetSpeed;
+            if ~isempty(stateflowDecision)
+                if isfield(stateflowDecision, 'mode_name')
+                    mName = upper(char(stateflowDecision.mode_name));
+                    if contains(mName, 'STOP')
+                        effectiveTargetSpeed = 0.0;
+                    elseif contains(mName, 'SLOW')
+                        effectiveTargetSpeed = min(effectiveTargetSpeed, 5.56); % 20 km/h
+                    elseif contains(mName, 'YIELD')
+                        effectiveTargetSpeed = min(effectiveTargetSpeed, 2.78); % 10 km/h
+                    elseif contains(mName, 'REROUTE')
+                        obj.LaneCommitted = true;
+                        obj.CommittedY = obj.PassingLaneY;
+                    end
+                elseif isfield(stateflowDecision, 'mode_id')
+                    mid = stateflowDecision.mode_id;
+                    if mid == 4 || mid == 3
+                        effectiveTargetSpeed = 0.0;
+                    elseif mid == 1 || mid == 2
+                        effectiveTargetSpeed = min(effectiveTargetSpeed, 5.56);
+                    end
+                end
+                if isfield(stateflowDecision, 'target_speed_factor') && stateflowDecision.target_speed_factor < 1.0
+                    effectiveTargetSpeed = effectiveTargetSpeed * stateflowDecision.target_speed_factor;
+                end
+            end
+
             % 1. Extract Obstacles in Vehicle Vicinity (Forward corridor X in [x0 - 2, x0 + 60])
-            parsedObstacles = obj.extract_obstacles(fusedTracks, x0, y0, psi0, v0);
+            parsedObstacles = obj.extract_obstacles(fusedTracks, x0, y0, psi0, v0, predictions);
+
+            % Ingest Road Surface Potholes (LiDAR/Camera ground curvature registry)
+            if ~isempty(potholes) && size(potholes, 1) > 0
+                for p = 1:size(potholes, 1)
+                    p_val1 = potholes(p, 1);
+                    p_val2 = potholes(p, 2);
+                    p_depth = potholes(p, 3);
+                    p_rad = potholes(p, 4);
+
+                    % Determine coordinate frame: BEV [X_lat, Z_long] vs World [X_world, Y_world]
+                    if abs(p_val1) < 6.0 && p_val2 > 8.0 && p_val2 > abs(p_val1)
+                        % BEV format: Z is longitudinal forward, X is lateral right
+                        p_wx = x0 + p_val2 * cos(psi0) + p_val1 * sin(psi0);
+                        p_wy = y0 + p_val2 * sin(psi0) - p_val1 * cos(psi0);
+                    else
+                        % World coordinate format
+                        p_wx = p_val1;
+                        p_wy = p_val2;
+                    end
+
+                    dx_p = p_wx - x0;
+
+                    % Check for shallow pothole speed reduction (dip < 5 cm within forward lookahead)
+                    if p_depth < 5.0 && dx_p > 0 && dx_p < 25.0 && abs(p_wy - y0) < 1.5
+                        effectiveTargetSpeed = min(effectiveTargetSpeed, 4.17); % 15 km/h dip traverse
+                    end
+
+                    % Check for deep pothole cavity (>= 5 cm) -> Treat as critical static hazard
+                    if p_depth >= 5.0
+                        pObs = struct(...
+                            'X', p_wx, 'Y', p_wy, 'Vx', 0.0, 'Vy', 0.0, ...
+                            'Length', max(1.8, 2.0 * p_rad), 'Width', max(1.8, 2.0 * p_rad), ...
+                            'Class', 'pothole_cavity', 'PredModes', []);
+                        parsedObstacles(end+1) = pObs; %#ok<AGROW>
+                    end
+                end
+            end
 
             % 2. Evaluate Lane Status & Commitment Condition
             inCruisingLane = (abs(y0 - obj.CruisingLaneY) < 1.0);
@@ -122,7 +193,7 @@ classdef dynamic_trajectory_planner < handle
                 dx = obs.X - x0;
                 
                 % Obstacle within forward 45m range
-                if dx > 1.0 && dx < 45.0
+                if dx > 0.5 && dx < 45.0
                     % Cruising lane corridor check (Y in [-2.75, -0.75])
                     if abs(obs.Y - obj.CruisingLaneY) < 1.4
                         cruisingLaneBlocked = true;
@@ -311,7 +382,7 @@ classdef dynamic_trajectory_planner < handle
             planInfo.SelectedHorizonT  = bestHorizonT;
             planInfo.IsEvasive         = obj.LaneCommitted;
             planInfo.LaneCommitted     = obj.LaneCommitted;
-            planInfo.TargetSpeed       = obj.TargetSpeed;
+            planInfo.TargetSpeed       = effectiveTargetSpeed;
             planInfo.BestCost          = bestCost;
         end
 
@@ -370,36 +441,69 @@ classdef dynamic_trajectory_planner < handle
                 % Dynamic Obstacle Check against forward-projected bounding ellipses
                 for oi = 1:numel(obstacles)
                     obs = obstacles(oi);
-                    x_obs = obs.X + obs.Vx * t;
-                    y_obs = obs.Y + obs.Vy * t;
 
-                    % Elliptical safety boundary
-                    a_safe = (obj.Length + obs.Length)/2 + 2.2 + 0.25 * v0; % Longitudinal clearance
-                    b_safe = (obj.Width + obs.Width)/2 + 0.65;             % Lateral clearance
+                    if isfield(obs, 'PredModes') && ~isempty(obs.PredModes)
+                        % Evaluate against multi-modal trajectory prediction modes
+                        for mi = 1:numel(obs.PredModes)
+                            mMode = obs.PredModes(mi);
+                            if mMode.prob < 0.10, continue; end
 
-                    distNorm = hypot((x_ego - x_obs)/a_safe, (y_ego - y_obs)/b_safe);
-                    physicalDist = hypot(x_ego - x_obs, y_ego - y_obs);
+                            % Sample predicted position at time t (prediction dt = 0.1s)
+                            stepIdx = max(1, min(numel(mMode.X), round(t / 0.1)));
+                            x_obs = mMode.X(stepIdx);
+                            y_obs = mMode.Y(stepIdx);
 
-                    if physicalDist < minClearance
-                        minClearance = physicalDist;
-                    end
+                            % Elliptical safety boundary
+                            a_safe = (obj.Length + obs.Length)/2 + 2.2 + 0.25 * v0;
+                            b_safe = (obj.Width + obs.Width)/2 + 0.65;
 
-                    if distNorm < 1.0
-                        isCollision = true;
+                            distNorm = hypot((x_ego - x_obs)/a_safe, (y_ego - y_obs)/b_safe);
+                            physicalDist = hypot(x_ego - x_obs, y_ego - y_obs);
+
+                            if physicalDist < minClearance
+                                minClearance = physicalDist;
+                            end
+                            if distNorm < 1.0
+                                isCollision = true;
+                            end
+                        end
+                    else
+                        % First-principles kinematic linear forward extrapolation
+                        x_obs = obs.X + obs.Vx * t;
+                        y_obs = obs.Y + obs.Vy * t;
+
+                        % Elliptical safety boundary
+                        a_safe = (obj.Length + obs.Length)/2 + 2.2 + 0.25 * v0; % Longitudinal clearance
+                        b_safe = (obj.Width + obs.Width)/2 + 0.65;             % Lateral clearance
+
+                        distNorm = hypot((x_ego - x_obs)/a_safe, (y_ego - y_obs)/b_safe);
+                        physicalDist = hypot(x_ego - x_obs, y_ego - y_obs);
+
+                        if physicalDist < minClearance
+                            minClearance = physicalDist;
+                        end
+
+                        if distNorm < 1.0
+                            isCollision = true;
+                        end
                     end
                 end
             end
         end
 
-        function obsList = extract_obstacles(obj, fusedTracks, x0, y0, psi0, v0)
-            obsList = struct('X', {}, 'Y', {}, 'Vx', {}, 'Vy', {}, 'Length', {}, 'Width', {}, 'Class', {});
+        function obsList = extract_obstacles(obj, fusedTracks, x0, y0, psi0, v0, predictions)
+            obsList = struct('X', {}, 'Y', {}, 'Vx', {}, 'Vy', {}, 'Length', {}, 'Width', {}, 'Class', {}, 'PredModes', {});
             if isempty(fusedTracks), return; end
+            if nargin < 7, predictions = []; end
 
             cosP = cos(psi0);
             sinP = sin(psi0);
 
             for i = 1:numel(fusedTracks)
                 trk = fusedTracks(i);
+                trkId = -1;
+                if isfield(trk, 'ID'), trkId = trk.ID;
+                elseif isfield(trk, 'id'), trkId = trk.id; end
 
                 % Handle both struct formats (sensor_fusion_bridge body format and AutonomousAVStack BEV format)
                 if isfield(trk, 'Position')
@@ -442,15 +546,51 @@ classdef dynamic_trajectory_planner < handle
                     len = 2.0; wid = 0.9;
                 elseif contains(cLower, 'pedestrian') || contains(cLower, 'person') || contains(cLower, 'vru') || contains(cLower, 'child')
                     len = 1.0; wid = 0.8;
+                elseif contains(cLower, 'cattle') || contains(cLower, 'cow') || contains(cLower, 'animal')
+                    len = 2.2; wid = 1.2;
                 elseif contains(cLower, 'barrier') || contains(cLower, 'cone') || contains(cLower, 'obstacle')
                     len = 3.5; wid = 1.0;
                 else
                     len = 4.5; wid = 2.0; % Passenger car default
                 end
 
+                % Ingest Multi-Modal GMM Trajectories if available from Trajectory layer
+                predModes = [];
+                if ~isempty(predictions)
+                    for pi = 1:numel(predictions)
+                        pTrk = predictions(pi);
+                        pId = -1;
+                        if isfield(pTrk, 'track_id'), pId = pTrk.track_id;
+                        elseif isfield(pTrk, 'id'), pId = pTrk.id; end
+
+                        if (trkId >= 0 && pId == trkId) || (trkId < 0 && pi == i)
+                            if isfield(pTrk, 'modes') && ~isempty(pTrk.modes)
+                                for m = 1:numel(pTrk.modes)
+                                    mStruct = pTrk.modes(m);
+                                    % Modes are in BEV coordinates [X (lat right), Z (long fwd)]
+                                    z_bev = mStruct.Z;
+                                    x_bev = mStruct.X;
+                                    % Transform mode trajectory to world coordinates
+                                    w_mx = x0 + z_bev * cosP + x_bev * sinP;
+                                    w_my = y0 + z_bev * sinP - x_bev * cosP;
+
+                                    mEntry = struct('prob', mStruct.prob, ...
+                                        'X', w_mx, 'Y', w_my, 'mode_name', mStruct.mode_name);
+                                    if isempty(predModes)
+                                        predModes = mEntry;
+                                    else
+                                        predModes(end+1) = mEntry; %#ok<AGROW>
+                                    end
+                                end
+                            end
+                            break;
+                        end
+                    end
+                end
+
                 obsList(end+1) = struct(...
                     'X', w_x, 'Y', w_y, 'Vx', w_vx, 'Vy', w_vy, ...
-                    'Length', len, 'Width', wid, 'Class', cClass); %#ok<AGROW>
+                    'Length', len, 'Width', wid, 'Class', cClass, 'PredModes', predModes); %#ok<AGROW>
             end
         end
 

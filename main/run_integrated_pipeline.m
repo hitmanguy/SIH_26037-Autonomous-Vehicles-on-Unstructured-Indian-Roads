@@ -31,6 +31,7 @@ function results = run_integrated_pipeline(duration, enable_viz)
     addpath(fullfile(base_dir, 'perception'));
     addpath(fullfile(base_dir, 'Sensor_fusion'));
     addpath(fullfile(base_dir, 'Trajectory'));
+    addpath(fullfile(base_dir, 'Path_planning_decision'));
 
     % 1. Instantiate the Unified Champion Stack
     stack = AutonomousAVStack();

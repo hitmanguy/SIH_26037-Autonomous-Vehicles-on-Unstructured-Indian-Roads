@@ -78,6 +78,7 @@ classdef AutonomousAVStack < handle
         LatestStateflowDecision
 
         % Path Planning & Decision Subsystem Handles (Path_planning_decision)
+        PlannerType                 = 'Frenet'        % 'Frenet' (SOTA Frenet Lattice) or 'HybridAStarQP' (Tesla-style 2-stage)
         DynamicPlanner              % SOTA Frenet Optimal Spatiotemporal Replanner
         PlannerSupervisor
         CostmapManager
@@ -488,7 +489,7 @@ classdef AutonomousAVStack < handle
             end
 
             % 3. Invoke SOTA Dynamic Spatiotemporal Trajectory Replanner & Decision Supervisor
-            if ~isempty(obj.DynamicPlanner)
+            if strcmpi(obj.PlannerType, 'Frenet') && ~isempty(obj.DynamicPlanner)
                 vYaw_rad = deg2rad(obj.EgoActor.Yaw);
                 curSteer = 0.0;
                 if ~isempty(obj.ControllerInstance) && isprop(obj.ControllerInstance, 'LastSteering')
@@ -498,17 +499,22 @@ classdef AutonomousAVStack < handle
                 egoState = [vPos(1), vPos(2), vYaw_rad, vx];
                 
                 % Dynamic Trajectory Replanning Step (@ 10 Hz)
+                % Ingests Fused Tracks, Multi-Modal GMM Predictions, Potholes, and Stateflow Decision
                 % Evaluates all candidate Frenet quintic polynomials against dynamic obstacles
                 % Enforces Indian traffic rules (stay on our own side, never cross Y > -0.6m)
                 % Maintains persistent lane commitment once evasion to Lane -2 has begun!
                 [dynamicWps, planInfo] = obj.DynamicPlanner.replan(...
-                    egoState, obj.OriginalWaypoints, fused_tracks, curSteer, t);
+                    egoState, obj.OriginalWaypoints, fused_tracks, curSteer, t, ...
+                    predictions, obj.Potholes, stateflow_decision);
                 
                 if ~isempty(dynamicWps) && size(dynamicWps, 1) >= 4
                     obj.LatestPlannedTrajectory = dynamicWps;
                     decisionState = 'CRUISE';
                     if planInfo.LaneCommitted, decisionState = 'LANE_COMMITTED'; end
                     if planInfo.IsEvasive, decisionState = 'EVASION_DETOUR'; end
+                    if isfield(stateflow_decision, 'mode_name') && ~strcmp(stateflow_decision.mode_name, 'CRUISE')
+                        decisionState = stateflow_decision.mode_name;
+                    end
                     
                     obj.PlanningStats = struct(...
                         'latency_search_ms', 1.1, ...
