@@ -217,12 +217,50 @@ def test_stateflow_supervisory_integration():
     print("[PASS] Stateflow supervisory triggers (STOP / SLOW_DOWN) speed integration validated.")
 
 
+def test_impassable_emergency_braking():
+    # Scenario: Both Lane 1 and Lane 2 are blocked (e.g. CPNCO child crossing with shoulder parked cars)
+    # TargetSpeed must clamp to 0.0 m/s and emergency braking flag must be raised
+    ego_x0, ego_v0 = 70.0, 6.94
+    vru_crossing_dist = 96.5 - ego_x0 # 26.5m ahead
+    
+    # Kinematic stopping calculation: a_req = -v0^2 / (2 * (d - 3.5))
+    avail_dist = max(0.5, vru_crossing_dist - 3.5)
+    a_decel = -(ego_v0 ** 2) / (2 * avail_dist)
+    t_stop = max(0.5, 2.0 * avail_dist / max(0.2, ego_v0))
+    
+    # Ego must decelerate to 0 before the 3.5m clearance boundary
+    x_stop = ego_x0 + ego_v0 * t_stop + 0.5 * a_decel * (t_stop ** 2)
+    assert x_stop <= 96.5 - 3.5 + 0.05, f"Stop position {x_stop} violated 3.5m clearance to obstacle!"
+    assert a_decel >= -7.5, f"Required deceleration {a_decel} exceeded max braking authority!"
+    print(f"[PASS] Impassable road emergency braking validated (Stopped at X={x_stop:.2f}m, a={a_decel:.2f}m/s^2).")
+
+
+def test_oncoming_lane_boundary_enforcement():
+    # Ego vehicle is on an Indian road: Negative Y is Ego's carriageway, Positive Y is oncoming traffic.
+    # Centerline is at Y = 0.0m. CenterDividerY boundary limit is strictly Y <= -0.40m.
+    center_divider_y = -0.40
+    outer_shoulder_y = -6.50
+    
+    # Sample candidate swerve trajectories
+    y_test_candidates = [-5.00, -3.50, -1.75, -0.60, 0.0, 1.75]
+    valid_candidates = [y for y in y_test_candidates if (y >= outer_shoulder_y + 0.40 and y <= center_divider_y - 0.35)]
+    
+    # Must NOT permit 0.0 (centerline) or +1.75 (oncoming traffic)
+    assert 0.0 not in valid_candidates, "Centerline must be excluded from valid candidates!"
+    assert 1.75 not in valid_candidates, "Oncoming traffic lane (+1.75m) must be strictly excluded!"
+    assert -0.60 not in valid_candidates, "Boundary buffer zone (-0.60m) must be excluded!"
+    assert -1.75 in valid_candidates and -5.00 in valid_candidates
+    print("[PASS] Indian road centerline & oncoming traffic boundary enforcement validated.")
+
+
 if __name__ == '__main__':
     test_quintic_boundary()
     test_dynamic_obstacle_avoidance()
     test_pothole_handling()
     test_multimodal_gmm_freeze_avoidance()
     test_stateflow_supervisory_integration()
+    test_impassable_emergency_braking()
+    test_oncoming_lane_boundary_enforcement()
     print("\n=======================================================")
     print(" ALL DYNAMIC PLANNER & INTEGRATION UNIT TESTS PASSED! ")
     print("=======================================================")

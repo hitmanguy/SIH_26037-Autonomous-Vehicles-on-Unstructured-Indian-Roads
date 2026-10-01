@@ -58,7 +58,7 @@ classdef AutonomousAVStack < handle
         
         % Road Surface Defect Registry (Potholes: [X, Z, depth_cm, radius_m, severity])
         Potholes = zeros(0, 5)
-        RoadBounds = [-4.5, 4.5]
+        RoadBounds = [-6.5, -0.4]
         
         % Simulation Timing State
         SimTime = 0.0
@@ -1159,8 +1159,13 @@ classdef AutonomousAVStack < handle
             stopClearance = 3.5; % Safe clearance buffer to obstacle envelope
             isVRU = contains(lower(leadClass), 'person') || contains(lower(leadClass), 'pedestrian') || contains(lower(leadClass), 'vru');
 
-            if (isVRU && (bumperDist <= stopClearance || ttc < 2.5)) || (~isVRU && bumperDist <= 0.8)
-                % Priority 1: Critical Emergency Braking (AEB) - VRU in path or absolute contact guard
+            isPlannerStop = false;
+            if ~isempty(obj.DynamicPlanner) && isstruct(obj.PlanningStats) && isfield(obj.PlanningStats, 'target_speed') && obj.PlanningStats.target_speed <= 0.1
+                isPlannerStop = true;
+            end
+
+            if isPlannerStop || (isVRU && (bumperDist <= stopClearance || ttc < 2.5)) || (~isVRU && bumperDist <= 0.8)
+                % Priority 1: Critical Emergency Braking (AEB) - VRU in path, planner stop, or absolute contact guard
                 aCmd = ctrl.MaxDecel; % -7.5 m/s^2 emergency brake
             elseif isVRU && (bumperDist < 50.0 || ttc < 4.5)
                 % Priority 2: Advance Kinematic Deceleration for VRU (smooth stopping ahead)

@@ -161,18 +161,27 @@ classdef autonomous_ego_controller < handle
 
             isEvasive = (isfield(planInfo, 'IsEvasive') && planInfo.IsEvasive) || ...
                         (isfield(planInfo, 'LaneCommitted') && planInfo.LaneCommitted);
-            isClearLaterally = (obj.CurrentState(2) < -3.4); % Vehicle already established in outer lane corridor
 
-            if minDist <= obj.StopDistance || ttc < 1.4
-                % Critical Emergency Braking (AEB) - absolute contact guard
+            targetLatY = -5.00;
+            if isfield(planInfo, 'SelectedTargetY')
+                targetLatY = planInfo.SelectedTargetY;
+            end
+            isClearLaterally = abs(obj.CurrentState(2) - targetLatY) < 0.60;
+
+            % Priority 0 Guard: Check if planner explicitly commanded Emergency Stop or TargetSpeed == 0
+            isPlannerStop = (isfield(planInfo, 'IsEmergencyBraking') && planInfo.IsEmergencyBraking) || ...
+                            (isfield(planInfo, 'TargetSpeed') && planInfo.TargetSpeed <= 0.1);
+
+            if isPlannerStop || minDist <= obj.StopDistance || ttc < 1.4
+                % Critical Emergency Braking (AEB) - absolute contact guard or planner stop command
                 aCmd = obj.MaxDecel;
             elseif isEvasive && ~isClearLaterally && minDist > 5.5
                 % Lateral evasion underway: maintain safe controlled evasion pace (16 km/h) while steering around
                 targetSpeed = min(obj.CruiseSpeed, 4.44); % 16 km/h steady evasion speed
                 speedErr = targetSpeed - vx;
                 aCmd = max(-2.5, min(1.0, 1.2 * speedErr));
-            elseif isEvasive && isClearLaterally
-                % Successfully transitioned into clear evasion corridor: cruise safely in Lane -2
+            elseif isEvasive && isClearLaterally && (minDist >= obj.SafeDistance && ttc >= 3.0)
+                % Successfully transitioned into clear evasion corridor: cruise safely
                 dynamicTargetSpeed = obj.CruiseSpeed;
                 speedErr = dynamicTargetSpeed - vx;
                 aCmd = max(-2.5, min(obj.MaxAccel, 1.2 * speedErr));

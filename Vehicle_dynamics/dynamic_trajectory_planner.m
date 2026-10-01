@@ -19,11 +19,11 @@ classdef dynamic_trajectory_planner < handle
 
     properties
         % Road and Geometry Parameters (Indian Urban Arterial)
-        RoadBounds          = [-6.20, -0.60]  % Allowed lateral envelope on Ego's own side [m]
+        RoadBounds          = [-6.50, -0.40]  % Allowed lateral envelope on Ego's own side [m]
         CruisingLaneY       = -1.75           % Lane -1 center (m)
         PassingLaneY        = -5.00           % Lane -2 center (m)
-        CenterDividerY      = -0.60           % Critical boundary: Y > -0.60 is oncoming traffic!
-        OuterShoulderY      = -6.20           % Road edge curb (m)
+        CenterDividerY      = -0.40           % Critical boundary: Y > -0.40 enters oncoming traffic!
+        OuterShoulderY      = -6.50           % Road edge curb (m)
         LaneWidth           = 3.50            % Standard lane width (m)
         
         % Vehicle Physical Dimensions
@@ -63,8 +63,15 @@ classdef dynamic_trajectory_planner < handle
             end
             if nargin >= 2 && ~isempty(roadBounds)
                 obj.RoadBounds = roadBounds;
-                obj.CenterDividerY = roadBounds(2);
-                obj.OuterShoulderY = roadBounds(1);
+                if roadBounds(1) < 0 && roadBounds(2) > 0
+                    % Bidirectional road: negative Y is Ego's travel direction; positive Y is oncoming traffic!
+                    % Clamp CenterDividerY strictly below 0 to never swerve into opposing traffic
+                    obj.CenterDividerY = -0.40;
+                    obj.OuterShoulderY = min(-6.50, roadBounds(1));
+                else
+                    obj.CenterDividerY = roadBounds(2);
+                    obj.OuterShoulderY = roadBounds(1);
+                end
             end
             obj.reset();
         end
@@ -106,10 +113,18 @@ classdef dynamic_trajectory_planner < handle
             if obj.LastPlanTime >= 0 && (simTime - obj.LastPlanTime) < (obj.ReplanInterval - 1e-4) && ~isempty(obj.LastPlannedWps)
                 wps = obj.LastPlannedWps;
                 planInfo = struct('SelectedTargetY', obj.LastTargetY, 'IsEvasive', obj.LaneCommitted, ...
-                    'LaneCommitted', obj.LaneCommitted, 'TargetSpeed', obj.TargetSpeed);
+                    'LaneCommitted', obj.LaneCommitted, 'TargetSpeed', obj.TargetSpeed, ...
+                    'IsEmergencyBraking', false, 'BestCost', 0.0);
                 return;
             end
             obj.LastPlanTime = simTime;
+
+            % Extract nominal route Y from global reference waypoints
+            nominalY = obj.CruisingLaneY;
+            if ~isempty(globalWaypoints) && size(globalWaypoints, 1) >= 2
+                nearCount = min(5, size(globalWaypoints, 1));
+                nominalY = mean(globalWaypoints(1:nearCount, 2));
+            end
 
             % Evaluate Stateflow Supervisory Directives
             effectiveTargetSpeed = obj.TargetSpeed;
@@ -152,23 +167,18 @@ classdef dynamic_trajectory_planner < handle
 
                     % Determine coordinate frame: BEV [X_lat, Z_long] vs World [X_world, Y_world]
                     if abs(p_val1) < 6.0 && p_val2 > 8.0 && p_val2 > abs(p_val1)
-                        % BEV format: Z is longitudinal forward, X is lateral right
                         p_wx = x0 + p_val2 * cos(psi0) + p_val1 * sin(psi0);
                         p_wy = y0 + p_val2 * sin(psi0) - p_val1 * cos(psi0);
                     else
-                        % World coordinate format
                         p_wx = p_val1;
                         p_wy = p_val2;
                     end
 
                     dx_p = p_wx - x0;
-
-                    % Check for shallow pothole speed reduction (dip < 5 cm within forward lookahead)
                     if p_depth < 5.0 && dx_p > 0 && dx_p < 25.0 && abs(p_wy - y0) < 1.5
                         effectiveTargetSpeed = min(effectiveTargetSpeed, 4.17); % 15 km/h dip traverse
                     end
 
-                    % Check for deep pothole cavity (>= 5 cm) -> Treat as critical static hazard
                     if p_depth >= 5.0
                         pObs = struct(...
                             'X', p_wx, 'Y', p_wy, 'Vx', 0.0, 'Vy', 0.0, ...
@@ -179,88 +189,107 @@ classdef dynamic_trajectory_planner < handle
                 end
             end
 
-            % 2. Evaluate Lane Status & Commitment Condition
-            inCruisingLane = (abs(y0 - obj.CruisingLaneY) < 1.0);
-            inPassingLane  = (abs(y0 - obj.PassingLaneY) < 1.0);
-
-            % Check if obstacle directly blocks cruising lane (Lane -1, Y ~ -1.75m)
-            cruisingLaneBlocked = false;
-            passingLaneBlocked  = false;
+            % 2. Comprehensive Lane Status & Clearance Evaluation
+            % An obstacle blocks a corridor if Ego is approaching it OR currently alongside it!
+            lane1Blocked = false;
+            lane2Blocked = false;
             critObstacleX = Inf;
+            critObstacleDist = Inf;
 
             for i = 1:numel(parsedObstacles)
                 obs = parsedObstacles(i);
-                dx = obs.X - x0;
-                
-                % Obstacle within forward 45m range
-                if dx > 0.5 && dx < 45.0
-                    % Cruising lane corridor check (Y in [-2.75, -0.75])
-                    if abs(obs.Y - obj.CruisingLaneY) < 1.4
-                        cruisingLaneBlocked = true;
-                        if obs.X < critObstacleX
+                obsFrontX = obs.X + obs.Length/2;
+                obsRearX  = obs.X - obs.Length/2;
+
+                % Check if obstacle is ahead or currently alongside Ego
+                if obsFrontX > (x0 - 2.0) && obsRearX < (x0 + 50.0)
+                    distToObs = obsRearX - (x0 + obj.Length/2);
+
+                    % Lane 1 blockage check (nominal cruising corridor)
+                    obsLatDistLane1 = abs(obs.Y - nominalY);
+                    corridorHalfWidth1 = (obj.Width + obs.Width)/2 + 0.45;
+                    if obsLatDistLane1 < corridorHalfWidth1
+                        lane1Blocked = true;
+                        if distToObs < critObstacleDist
+                            critObstacleDist = distToObs;
                             critObstacleX = obs.X;
                         end
                     end
-                    % Passing lane corridor check (Y in [-6.00, -4.00])
-                    if abs(obs.Y - obj.PassingLaneY) < 1.4
-                        passingLaneBlocked = true;
+
+                    % Lane 2 blockage check (outer passing/detour corridor)
+                    obsLatDistLane2 = abs(obs.Y - obj.PassingLaneY);
+                    corridorHalfWidth2 = (obj.Width + obs.Width)/2 + 0.45;
+                    if obsLatDistLane2 < corridorHalfWidth2
+                        lane2Blocked = true;
                     end
                 end
             end
 
             % Update Lane Commitment State Machine
-            if cruisingLaneBlocked && ~passingLaneBlocked
-                % Trigger Evasion & Lock Commitment into Lane -2
+            if lane1Blocked && ~lane2Blocked
+                % Clear evasion path in Lane -2: Commit and hold until safely past obstacle
                 obj.LaneCommitted = true;
                 obj.CommittedY = obj.PassingLaneY;
-                obj.CommitmentHoldUntilX = critObstacleX + 25.0; % Hold until 25m past hazard
+                obj.CommitmentHoldUntilX = critObstacleX + 18.0; % Hold until 18m past hazard
             elseif obj.LaneCommitted
-                % Check if downstream route deliberately returns to Lane -1
+                % Hold commitment until Ego has fully cleared the obstacle and downstream route requests nominal
                 downstreamWantsLane1 = false;
                 if ~isempty(globalWaypoints)
                     futureIdx = find(globalWaypoints(:, 1) > x0 + 15.0, 1);
-                    if ~isempty(futureIdx) && abs(globalWaypoints(futureIdx, 2) - obj.CruisingLaneY) < 0.5
+                    if ~isempty(futureIdx) && abs(globalWaypoints(futureIdx, 2) - nominalY) < 0.5
                         downstreamWantsLane1 = true;
                     end
                 end
 
-                % Stay committed to Lane -2 UNLESS downstream route explicitly calls for Lane -1 AND cruising lane is clear!
-                if x0 >= obj.CommitmentHoldUntilX && ~cruisingLaneBlocked && downstreamWantsLane1
-                    % Safe and intended to return smoothly to nominal cruising lane
+                if x0 >= obj.CommitmentHoldUntilX && ~lane1Blocked && downstreamWantsLane1
                     obj.LaneCommitted = false;
-                    obj.CommittedY = obj.CruisingLaneY;
+                    obj.CommittedY = nominalY;
                 else
-                    % Maintain rock-solid lock on Lane -2
                     obj.LaneCommitted = true;
                     obj.CommittedY = obj.PassingLaneY;
                 end
             else
-                obj.CommittedY = obj.CruisingLaneY;
+                obj.CommittedY = nominalY;
             end
 
-            % 3. Generate Candidate Lateral Targets (Indian Road Evasion Corridor)
-            % Never plan targets that enter oncoming traffic (Y > -0.60m)
-            if obj.LaneCommitted
-                % When committed to Lane -2: primary target is Lane -2, with minor lateral nudges
-                candidateTargets = [obj.PassingLaneY, obj.PassingLaneY - 0.40, obj.PassingLaneY + 0.50];
-                preferredTargetY = obj.PassingLaneY;
-            elseif cruisingLaneBlocked
-                % Cruising lane blocked: sample Lane -2 and shoulder bypass
-                candidateTargets = [obj.PassingLaneY, obj.PassingLaneY - 0.50, -3.50];
-                preferredTargetY = obj.PassingLaneY;
-            else
-                % Road clear: stay in Cruising Lane -1, with minor adjustments
-                candidateTargets = [obj.CruisingLaneY, obj.CruisingLaneY - 0.50, obj.CruisingLaneY + 0.40];
-                preferredTargetY = obj.CruisingLaneY;
-            end
-
-            % Initial Frenet lateral state [d0, dot_d0, ddot_d0]
-            % d is lateral position Y in world frame
+            % 3. Generate Candidate Lateral Targets (Indian Road Own-Side Corridor)
+            % Strictly enforce: Never plan targets that cross centerline into oncoming traffic (Y > -0.40m)
             d0 = y0;
             dot_d0 = v0 * sin(psi0);
-            % Initial lateral acceleration from steering angle: a_lat = (v^2 / L) * tan(delta)
             ddot_d0 = (v0^2 / obj.Wheelbase) * tan(currentSteer);
-            ddot_d0 = max(-2.5, min(2.5, ddot_d0)); % Saturate to feasible acceleration
+            ddot_d0 = max(-2.5, min(2.5, ddot_d0));
+
+            candTargets = [];
+            if obj.LaneCommitted
+                candTargets = [obj.PassingLaneY, obj.PassingLaneY - 0.40, obj.PassingLaneY + 0.50, nominalY];
+                preferredTargetY = obj.PassingLaneY;
+            elseif lane1Blocked && ~lane2Blocked
+                candTargets = [obj.PassingLaneY, obj.PassingLaneY - 0.40, obj.PassingLaneY + 0.50, -3.50];
+                preferredTargetY = obj.PassingLaneY;
+            elseif lane1Blocked && lane2Blocked
+                % Both corridors blocked (e.g. crossing VRU with shoulder parked cars, or wrong-way vehicle)
+                % Maintain current lane alignment and prepare emergency braking
+                candTargets = [d0, nominalY, obj.PassingLaneY];
+                preferredTargetY = d0;
+            else
+                % Road clear: follow nominal cruising route with minor dynamic nudges
+                candTargets = [nominalY, nominalY - 0.40, nominalY + 0.40];
+                preferredTargetY = nominalY;
+            end
+
+            % Filter candidate targets strictly within drivable road bounds on Ego's own side
+            validTargets = [];
+            for ti = 1:numel(candTargets)
+                ty = candTargets(ti);
+                if ty >= (obj.OuterShoulderY + 0.40) && ty <= (obj.CenterDividerY - 0.35)
+                    if isempty(validTargets) || ~any(abs(validTargets - ty) < 0.10)
+                        validTargets(end+1) = ty; %#ok<AGROW>
+                    end
+                end
+            end
+            if isempty(validTargets)
+                validTargets = [max(obj.OuterShoulderY + 0.60, min(obj.CenterDividerY - 0.40, d0))];
+            end
 
             % 4. Spatiotemporal Candidate Generation & Cost Optimization (Lattice Search)
             bestCost = Inf;
@@ -268,29 +297,19 @@ classdef dynamic_trajectory_planner < handle
             bestTargetY = preferredTargetY;
             bestHorizonT = 3.0;
 
-            for tIdx = 1:numel(candidateTargets)
-                d1 = candidateTargets(tIdx);
-
-                % Skip if target violates road boundaries
-                if d1 > (obj.CenterDividerY - 0.20) || d1 < (obj.OuterShoulderY + 0.20)
-                    continue;
-                end
+            for tIdx = 1:numel(validTargets)
+                d1 = validTargets(tIdx);
 
                 for hIdx = 1:numel(obj.Horizons)
                     T = obj.Horizons(hIdx);
 
-                    % Solve closed-form Quintic Polynomial for lateral profile d(t)
                     poly = obj.solve_quintic(d0, dot_d0, ddot_d0, d1, T);
 
-                    % Calculate Jerk & Acceleration Cost
                     jerkCost = poly.calc_jerk_integral();
                     accCost = abs(d1 - d0) / (T^2);
-
-                    % Target Preference & Commitment Cost
                     targetCost = (d1 - preferredTargetY)^2;
                     commitCost = (d1 - obj.CommittedY)^2;
 
-                    % Spatiotemporal Collision & Boundary Check
                     [isCollision, minClearance, boundaryViol] = obj.check_spatiotemporal_collision(...
                         poly, x0, v0, T, parsedObstacles);
 
@@ -307,7 +326,6 @@ classdef dynamic_trajectory_planner < handle
                     if isCollision
                         totalCost = totalCost + obj.w_collision;
                     else
-                        % Proximity cost: encourage healthy clearance margins
                         if minClearance < 3.5
                             totalCost = totalCost + 150.0 / max(0.5, minClearance);
                         end
@@ -322,54 +340,87 @@ classdef dynamic_trajectory_planner < handle
                 end
             end
 
-            % Fallback: if all candidate maneuvers had issues, force smooth hold of safe corridor
-            if isempty(bestTrajectory)
-                bestTrajectory = obj.solve_quintic(d0, dot_d0, ddot_d0, obj.CommittedY, 3.5);
-                bestTargetY = obj.CommittedY;
-                bestHorizonT = 3.5;
+            % 5. Impassable Corridor Detection & Emergency Braking
+            % If all candidate trajectories collide (bestCost >= 0.5 * w_collision), NO safe lateral corridor exists.
+            % DO NOT force a collision or swerve into parked cars/oncoming traffic! Initiate safe AEB to standstill!
+            isEmergencyStop = false;
+            if isempty(bestTrajectory) || bestCost >= 0.5 * obj.w_collision
+                isEmergencyStop = true;
+                effectiveTargetSpeed = 0.0;
+                bestTargetY = max(obj.OuterShoulderY + 0.60, min(obj.CenterDividerY - 0.40, d0));
+                bestHorizonT = 3.0;
+                bestTrajectory = obj.solve_quintic(d0, dot_d0, 0.0, bestTargetY, bestHorizonT);
             end
 
             obj.LastTargetY = bestTargetY;
 
-            % 5. Sample Continuous C^2 Waypoints from Optimal Trajectory
-            % Generate forward trajectory up to lookahead distance (50m)
-            vForward = max(2.5, v0);
-            timeSamples = 0.0:0.05:bestHorizonT;
-            N_samples = numel(timeSamples);
+            % 6. Sample Continuous C^2 Waypoints
+            if isEmergencyStop
+                % Emergency stopping trajectory: decelerate smoothly to standstill before obstacle
+                dStopAvail = max(0.5, critObstacleDist - 3.5);
+                if isinf(critObstacleDist) || critObstacleDist <= 0
+                    dStopAvail = max(1.0, (v0^2) / (2 * 4.5));
+                end
+                tStop = max(0.5, 2.0 * dStopAvail / max(0.2, v0));
+                timeSamples = 0.0:0.05:max(bestHorizonT, tStop);
+                N_samples = numel(timeSamples);
+                trajX = zeros(N_samples, 1);
+                trajY = zeros(N_samples, 1);
 
-            trajX = zeros(N_samples, 1);
-            trajY = zeros(N_samples, 1);
+                aDecel = min(-1.5, -(v0^2) / (2 * max(0.5, dStopAvail)));
+                for k = 1:N_samples
+                    tk = timeSamples(k);
+                    if tk <= tStop
+                        s_prog = v0 * tk + 0.5 * aDecel * (tk^2);
+                        trajX(k) = x0 + max(0.0, min(dStopAvail, s_prog));
+                    else
+                        trajX(k) = x0 + dStopAvail;
+                    end
+                    trajY(k) = bestTrajectory.calc_pos(min(tk, bestHorizonT));
+                end
 
-            for k = 1:N_samples
-                tk = timeSamples(k);
-                trajX(k) = x0 + vForward * tk;
-                trajY(k) = bestTrajectory.calc_pos(tk);
-            end
+                % Forward extension holding position at standstill
+                extX = (trajX(end)+0.5:obj.ReplanDistance:trajX(end)+25.0)';
+                extY = trajY(end) * ones(size(extX));
+                fullWps = [trajX, trajY; extX, extY];
+            else
+                % Normal smooth cruising or detour trajectory
+                vForward = max(2.5, v0);
+                timeSamples = 0.0:0.05:bestHorizonT;
+                N_samples = numel(timeSamples);
 
-            % Enforce strictly that planned trajectory NEVER crosses into oncoming lane
-            trajY = max(obj.OuterShoulderY + 0.15, min(obj.CenterDividerY - 0.15, trajY));
+                trajX = zeros(N_samples, 1);
+                trajY = zeros(N_samples, 1);
 
-            % 6. Smoothly Stitch with Downstream Global Waypoints
-            if ~isempty(globalWaypoints) && size(globalWaypoints, 1) >= 2
-                lastPlanPt = [trajX(end), trajY(end)];
-                distsGlobal = hypot(globalWaypoints(:,1) - lastPlanPt(1), globalWaypoints(:,2) - lastPlanPt(2));
-                [~, matchIdx] = min(distsGlobal);
+                for k = 1:N_samples
+                    tk = timeSamples(k);
+                    trajX(k) = x0 + vForward * tk;
+                    trajY(k) = bestTrajectory.calc_pos(tk);
+                end
 
-                if matchIdx < size(globalWaypoints, 1)
-                    remainingGlobal = globalWaypoints(matchIdx+1:end, :);
-                    % Guarantee C^1 continuity: Downstream waypoints seamlessly follow the end of the planned maneuver
-                    remainingGlobal(:, 2) = trajY(end);
-                    fullWps = [trajX, trajY; remainingGlobal];
+                % Enforce strictly that planned trajectory NEVER crosses into oncoming lane
+                trajY = max(obj.OuterShoulderY + 0.15, min(obj.CenterDividerY - 0.15, trajY));
+
+                % Stitch with downstream global waypoints
+                if ~isempty(globalWaypoints) && size(globalWaypoints, 1) >= 2
+                    lastPlanPt = [trajX(end), trajY(end)];
+                    distsGlobal = hypot(globalWaypoints(:,1) - lastPlanPt(1), globalWaypoints(:,2) - lastPlanPt(2));
+                    [~, matchIdx] = min(distsGlobal);
+
+                    if matchIdx < size(globalWaypoints, 1)
+                        remainingGlobal = globalWaypoints(matchIdx+1:end, :);
+                        remainingGlobal(:, 2) = trajY(end);
+                        fullWps = [trajX, trajY; remainingGlobal];
+                    else
+                        extX = (trajX(end)+1:obj.ReplanDistance:max(350.0, trajX(end)+150))';
+                        extY = trajY(end) * ones(size(extX));
+                        fullWps = [trajX, trajY; extX, extY];
+                    end
                 else
-                    % Synthesize forward extension at current committed lane covering full road (350m)
                     extX = (trajX(end)+1:obj.ReplanDistance:max(350.0, trajX(end)+150))';
                     extY = trajY(end) * ones(size(extX));
                     fullWps = [trajX, trajY; extX, extY];
                 end
-            else
-                extX = (trajX(end)+1:obj.ReplanDistance:max(350.0, trajX(end)+150))';
-                extY = trajY(end) * ones(size(extX));
-                fullWps = [trajX, trajY; extX, extY];
             end
 
             % Downsample and ensure smooth interpolation (0.5m spacing)
@@ -378,12 +429,13 @@ classdef dynamic_trajectory_planner < handle
 
             % 7. Pack Planning Telemetry
             planInfo = struct();
-            planInfo.SelectedTargetY   = bestTargetY;
-            planInfo.SelectedHorizonT  = bestHorizonT;
-            planInfo.IsEvasive         = obj.LaneCommitted;
-            planInfo.LaneCommitted     = obj.LaneCommitted;
-            planInfo.TargetSpeed       = effectiveTargetSpeed;
-            planInfo.BestCost          = bestCost;
+            planInfo.SelectedTargetY    = bestTargetY;
+            planInfo.SelectedHorizonT   = bestHorizonT;
+            planInfo.IsEvasive          = obj.LaneCommitted && ~isEmergencyStop;
+            planInfo.LaneCommitted      = obj.LaneCommitted && ~isEmergencyStop;
+            planInfo.TargetSpeed        = effectiveTargetSpeed;
+            planInfo.IsEmergencyBraking = isEmergencyStop;
+            planInfo.BestCost           = bestCost;
         end
 
         function poly = solve_quintic(~, d0, v_d0, a_d0, d1, T)
@@ -419,7 +471,7 @@ classdef dynamic_trajectory_planner < handle
             boundaryViol = false;
             minClearance = Inf;
 
-            tCheck = 0.2:0.2:T;
+            tCheck = 0.1:0.1:T;
 
             for k = 1:numel(tCheck)
                 t = tCheck(k);
@@ -428,7 +480,7 @@ classdef dynamic_trajectory_planner < handle
 
                 % Hard Road Boundary Check:
                 % Oncoming lane violation (crossing centerline into opposite traffic)
-                if y_ego > (obj.CenterDividerY - 0.15)
+                if y_ego > (obj.CenterDividerY - 0.10)
                     boundaryViol = true;
                     return;
                 end
@@ -438,7 +490,7 @@ classdef dynamic_trajectory_planner < handle
                     return;
                 end
 
-                % Dynamic Obstacle Check against forward-projected bounding ellipses
+                % Dynamic/Static Obstacle Check against forward-projected bounding ellipses
                 for oi = 1:numel(obstacles)
                     obs = obstacles(oi);
 
@@ -454,8 +506,8 @@ classdef dynamic_trajectory_planner < handle
                             y_obs = mMode.Y(stepIdx);
 
                             % Elliptical safety boundary
-                            a_safe = (obj.Length + obs.Length)/2 + 2.2 + 0.25 * v0;
-                            b_safe = (obj.Width + obs.Width)/2 + 0.65;
+                            a_safe = (obj.Length + obs.Length)/2 + 2.0 + 0.25 * v0;
+                            b_safe = (obj.Width + obs.Width)/2 + 0.70;
 
                             distNorm = hypot((x_ego - x_obs)/a_safe, (y_ego - y_obs)/b_safe);
                             physicalDist = hypot(x_ego - x_obs, y_ego - y_obs);
@@ -473,8 +525,8 @@ classdef dynamic_trajectory_planner < handle
                         y_obs = obs.Y + obs.Vy * t;
 
                         % Elliptical safety boundary
-                        a_safe = (obj.Length + obs.Length)/2 + 2.2 + 0.25 * v0; % Longitudinal clearance
-                        b_safe = (obj.Width + obs.Width)/2 + 0.65;             % Lateral clearance
+                        a_safe = (obj.Length + obs.Length)/2 + 2.0 + 0.25 * v0; % Longitudinal clearance
+                        b_safe = (obj.Width + obs.Width)/2 + 0.70;             % Lateral clearance
 
                         distNorm = hypot((x_ego - x_obs)/a_safe, (y_ego - y_obs)/b_safe);
                         physicalDist = hypot(x_ego - x_obs, y_ego - y_obs);

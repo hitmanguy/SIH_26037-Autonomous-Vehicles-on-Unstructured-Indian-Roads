@@ -138,7 +138,7 @@ classdef pure_pursuit_controller < handle
             epsi = wrapToPi(yaw - tangentYaw);
             
             k_stanley = 0.35;
-            delta_stanley = atan(k_stanley * ey / (vx + 1.0));
+            delta_stanley = -atan(k_stanley * ey / (vx + 1.0));
 
             % 7. Curvature Feedforward Steering
             delta_ff = atan(obj.Wheelbase * curvature);
