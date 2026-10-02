@@ -58,7 +58,7 @@ classdef AutonomousAVStack < handle
         
         % Road Surface Defect Registry (Potholes: [X, Z, depth_cm, radius_m, severity])
         Potholes = zeros(0, 5)
-        RoadBounds = [-6.5, -0.4]
+        RoadBounds = [-4.5, 4.5]
         
         % Simulation Timing State
         SimTime = 0.0
@@ -78,7 +78,6 @@ classdef AutonomousAVStack < handle
         LatestStateflowDecision
 
         % Path Planning & Decision Subsystem Handles (Path_planning_decision)
-        PlannerType                 = 'Frenet'        % 'Frenet' (SOTA Frenet Lattice) or 'HybridAStarQP' (Tesla-style 2-stage)
         DynamicPlanner              % SOTA Frenet Optimal Spatiotemporal Replanner
         PlannerSupervisor
         CostmapManager
@@ -95,9 +94,9 @@ classdef AutonomousAVStack < handle
         function obj = AutonomousAVStack(waypoints, cruiseSpeed, sampleTime, controllerType)
             % AUTONOMOUSAVSTACK Constructor
             if nargin < 1 || isempty(waypoints)
-                % Default 2-lane Indian road corridor advancing along X
+                % Default 2-lane Indian road corridor with slight curve
                 s = linspace(0, 300, 150)';
-                waypoints = [s, -1.8 * ones(size(s))]; % Cruising right lane at Y = -1.8m
+                waypoints = [-1.8 * ones(size(s)), s]; % Cruising right lane at x = -1.8m
             end
             if nargin < 2 || isempty(cruiseSpeed), cruiseSpeed = 6.94; end % 25 km/h steady smooth cruise
             if nargin < 3 || isempty(sampleTime), sampleTime = 0.02; end    % 50 Hz
@@ -151,8 +150,8 @@ classdef AutonomousAVStack < handle
             obj.LatestPlannedTrajectory = [];
             obj.PlanningStats       = struct('latency_search_ms', 0, 'latency_qp_ms', 0, 'decision_state', 'CRUISE', 'target_speed', cruiseSpeed);
 
-            % 4. Instantiate Ego Vehicle Controller & Mock Actor (Cartesian X=forward, Y=lateral)
-            obj.EgoActor = MockEgoActor([0.0, -1.8, 0.0], [cruiseSpeed, 0.0, 0.0], 0.0);
+            % 4. Instantiate Ego Vehicle Controller & Mock Actor
+            obj.EgoActor = MockEgoActor([-1.8, 0.0, 0.0], [0.0, cruiseSpeed, 0.0], 90.0);
             obj.ControllerInstance = autonomous_ego_controller(waypoints, [], controllerType, cruiseSpeed, obj.dt_controller);
             obj.ControllerInstance.init_state(obj.EgoActor);
 
@@ -489,7 +488,7 @@ classdef AutonomousAVStack < handle
             end
 
             % 3. Invoke SOTA Dynamic Spatiotemporal Trajectory Replanner & Decision Supervisor
-            if strcmpi(obj.PlannerType, 'Frenet') && ~isempty(obj.DynamicPlanner)
+            if ~isempty(obj.DynamicPlanner)
                 vYaw_rad = deg2rad(obj.EgoActor.Yaw);
                 curSteer = 0.0;
                 if ~isempty(obj.ControllerInstance) && isprop(obj.ControllerInstance, 'LastSteering')
@@ -499,22 +498,17 @@ classdef AutonomousAVStack < handle
                 egoState = [vPos(1), vPos(2), vYaw_rad, vx];
                 
                 % Dynamic Trajectory Replanning Step (@ 10 Hz)
-                % Ingests Fused Tracks, Multi-Modal GMM Predictions, Potholes, and Stateflow Decision
                 % Evaluates all candidate Frenet quintic polynomials against dynamic obstacles
                 % Enforces Indian traffic rules (stay on our own side, never cross Y > -0.6m)
                 % Maintains persistent lane commitment once evasion to Lane -2 has begun!
                 [dynamicWps, planInfo] = obj.DynamicPlanner.replan(...
-                    egoState, obj.OriginalWaypoints, fused_tracks, curSteer, t, ...
-                    predictions, obj.Potholes, stateflow_decision);
+                    egoState, obj.OriginalWaypoints, fused_tracks, curSteer, t);
                 
                 if ~isempty(dynamicWps) && size(dynamicWps, 1) >= 4
                     obj.LatestPlannedTrajectory = dynamicWps;
                     decisionState = 'CRUISE';
                     if planInfo.LaneCommitted, decisionState = 'LANE_COMMITTED'; end
                     if planInfo.IsEvasive, decisionState = 'EVASION_DETOUR'; end
-                    if isfield(stateflow_decision, 'mode_name') && ~strcmp(stateflow_decision.mode_name, 'CRUISE')
-                        decisionState = stateflow_decision.mode_name;
-                    end
                     
                     obj.PlanningStats = struct(...
                         'latency_search_ms', 1.1, ...
@@ -628,11 +622,9 @@ classdef AutonomousAVStack < handle
                             w_x = vPos(1) + z_pts * cos(vYaw_rad) - (-x_pts) * sin(vYaw_rad);
                             w_y = vPos(2) + z_pts * sin(vYaw_rad) + (-x_pts) * cos(vYaw_rad);
                             
-                            % Clamp w_y strictly to vehicle's OWN side of the road if road bounds are defined:
-                            if isprop(obj, 'RoadBounds') && ~isempty(obj.RoadBounds) && numel(obj.RoadBounds) == 2
-                                minB = min(obj.RoadBounds); maxB = max(obj.RoadBounds);
-                                w_y = max(minB, min(maxB, w_y));
-                            end
+                            % Clamp w_y strictly to vehicle's OWN side of the road [-6.2m shoulder to -0.6m center divider]:
+                            % Strictly prevents crossing the centerline into opposing oncoming traffic (Y > 0)
+                            w_y = max(-6.2, min(-0.6, w_y));
                             
                             % Stitch planned horizon with global route waypoints to ensure continuity
                             if ~isempty(obj.OriginalWaypoints)
@@ -686,7 +678,7 @@ classdef AutonomousAVStack < handle
         function telemetry = run_closed_loop_control(obj, t, stateflow_decision)
             % Domain 5: 50 Hz Kinematic AEB / ACC & Pure Pursuit Lateral Tracking
             ctrl = obj.ControllerInstance;
-            vx   = norm(obj.EgoActor.Velocity(1:2));
+            vx   = obj.EgoActor.Velocity(2);
 
             % Find closest in-path lead obstacle from fused world model
             leadDist = Inf;
@@ -720,14 +712,15 @@ classdef AutonomousAVStack < handle
                 end
             end
 
-            effClosingSpeed = max(0.0, closingVel);
+            effClosingSpeed = max(vx, closingVel);
 
-            % Check if detour corridor (Lane -2 at lateral X in [-4.5, -1.8]) is blocked
-            % Indian left-side driving bypasses via outer lane (Lane -2).
+            % Check if right-side detour corridor (Lane -2) is blocked by an obstacle
+            % In Indian road (left-side driving), detour corridor is to the RIGHT (Lane -2).
+            % It is blocked ONLY if an obstacle actually occupies the right lane (X > 1.5 in body frame, ahead within 35m)
             detourCorridorBlocked = false;
             for k = 1:length(obj.FusedWorldModel.tracks)
                 trk = obj.FusedWorldModel.tracks(k);
-                if trk.X < -1.8 && trk.X > -4.5 && trk.Z > 0.5 && trk.Z < 25.0
+                if trk.X > 1.5 && trk.Z > -2.0 && trk.Z < 35.0
                     detourCorridorBlocked = true;
                     break;
                 end
@@ -798,17 +791,17 @@ classdef AutonomousAVStack < handle
             [ey, epsi] = ctrl.calc_lateral_error(currentPose(1), currentPose(2), currentPose(3));
             ctrl.LastSteering = deltaCmd;
 
-            % 3. Kinematic Bicycle State Propagation (dt = 0.02s) - Cartesian Frame
+            % 3. Kinematic Bicycle State Propagation (dt = 0.02s)
             dt = obj.dt_base;
             beta = atan((ctrl.lr / ctrl.Wheelbase) * tan(deltaCmd));
-            x_next   = currentPose(1) + vx * cos(currentPose(3) + beta) * dt;
-            z_next   = currentPose(2) + vx * sin(currentPose(3) + beta) * dt;
+            x_next   = currentPose(1) + vx * sin(currentPose(3) + beta) * dt;
+            z_next   = currentPose(2) + vx * cos(currentPose(3) + beta) * dt;
             psi_next = wrapToPi(currentPose(3) + (vx / ctrl.Wheelbase) * cos(beta) * tan(deltaCmd) * dt);
             vx_next  = max(0.0, vx + aCmd * dt);
 
             % Update Ego Actor State
             obj.EgoActor.Position = [x_next, z_next, 0.0];
-            obj.EgoActor.Velocity = [vx_next * cos(psi_next + beta), vx_next * sin(psi_next + beta), 0.0];
+            obj.EgoActor.Velocity = [0.0, vx_next, 0.0];
             obj.EgoActor.Yaw      = rad2deg(psi_next);
             ctrl.CurrentState     = [x_next, z_next, psi_next, vx_next];
 
@@ -1115,12 +1108,13 @@ classdef AutonomousAVStack < handle
 
             effClosingSpeed = max(vx, closingVel);
 
-            % Check if detour corridor (Lane -2 at lateral X in [-4.5, -1.8]) is blocked
-            % Indian left-side driving bypasses via outer lane (Lane -2).
+            % Check if right-side detour corridor (Lane -2) is blocked by an obstacle
+            % In Indian road (left-side driving), detour corridor is to the RIGHT (Lane -2).
+            % It is blocked ONLY if an obstacle actually occupies the right lane (X > 1.5 in body frame, ahead within 35m)
             detourCorridorBlocked = false;
             for k = 1:length(obj.FusedWorldModel.tracks)
                 trk = obj.FusedWorldModel.tracks(k);
-                if trk.X < -1.8 && trk.X > -4.5 && trk.Z > 0.5 && trk.Z < 25.0
+                if trk.X > 1.5 && trk.Z > -2.0 && trk.Z < 35.0
                     detourCorridorBlocked = true;
                     break;
                 end
@@ -1159,13 +1153,8 @@ classdef AutonomousAVStack < handle
             stopClearance = 3.5; % Safe clearance buffer to obstacle envelope
             isVRU = contains(lower(leadClass), 'person') || contains(lower(leadClass), 'pedestrian') || contains(lower(leadClass), 'vru');
 
-            isPlannerStop = false;
-            if ~isempty(obj.DynamicPlanner) && isstruct(obj.PlanningStats) && isfield(obj.PlanningStats, 'target_speed') && obj.PlanningStats.target_speed <= 0.1
-                isPlannerStop = true;
-            end
-
-            if isPlannerStop || (isVRU && (bumperDist <= stopClearance || ttc < 2.5)) || (~isVRU && bumperDist <= 0.8)
-                % Priority 1: Critical Emergency Braking (AEB) - VRU in path, planner stop, or absolute contact guard
+            if (isVRU && (bumperDist <= stopClearance || ttc < 2.5)) || (~isVRU && bumperDist <= 0.8)
+                % Priority 1: Critical Emergency Braking (AEB) - VRU in path or absolute contact guard
                 aCmd = ctrl.MaxDecel; % -7.5 m/s^2 emergency brake
             elseif isVRU && (bumperDist < 50.0 || ttc < 4.5)
                 % Priority 2: Advance Kinematic Deceleration for VRU (smooth stopping ahead)

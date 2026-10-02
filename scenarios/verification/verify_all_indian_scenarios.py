@@ -10,14 +10,11 @@ import os
 import re
 import xml.etree.ElementTree as ET
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-REPO_ROOT = os.path.dirname(os.path.dirname(SCRIPT_DIR))
-
-SCENARIO_DIR = os.path.join(REPO_ROOT, "scenarios", "scenarios_xosc", "indian")
-ROAD_XODR = os.path.join(REPO_ROOT, "scenarios", "maps_xodr", "Indian_Urban_Arterial.xodr")
-IMPORT_M = os.path.join(REPO_ROOT, "scenarios", "matlab", "import_openscenario.m")
-RUN_INTERSECTION_M = os.path.join(REPO_ROOT, "scenarios", "matlab", "run_intersection_scenario.m")
-RECORD_UNREAL_M = os.path.join(REPO_ROOT, "Vehicle_dynamics", "record_unreal_simulation.m")
+SCENARIO_DIR = r"D:\hackathon\SIH26\scenarios\scenarios_xosc\indian"
+ROAD_XODR = r"D:\hackathon\SIH26\scenarios\maps_xodr\Indian_Urban_Arterial.xodr"
+IMPORT_M = r"D:\hackathon\SIH26\scenarios\matlab\import_openscenario.m"
+RUN_INTERSECTION_M = r"D:\hackathon\SIH26\scenarios\matlab\run_intersection_scenario.m"
+RECORD_UNREAL_M = r"D:\hackathon\SIH26\vehicle_dynamics\record_unreal_simulation.m"
 
 # Road Corridor Limits from Indian_Urban_Arterial.xodr
 X_MIN, X_MAX = 0.0, 350.0

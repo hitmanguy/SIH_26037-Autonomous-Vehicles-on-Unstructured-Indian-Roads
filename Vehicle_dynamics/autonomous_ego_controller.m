@@ -148,59 +148,47 @@ classdef autonomous_ego_controller < handle
                 planInfo = obj.PlanInfo;
             end
 
-            % 2. Longitudinal Control: SOTA ACC Car-Following & Emergency AEB
+            % 2. Longitudinal Control: First-Principles Kinematic ACC & AEB
             vx = obj.CurrentState(4);
-            vRelClosing = vClosing; % Rate of range decrease (m/s)
-
-            dStandstill = obj.StopDistance; % 3.5m emergency clearance
-            timeHeadway = 1.5;              % 1.5s comfortable following headway
-            desiredGap  = dStandstill + vx * timeHeadway;
-
-            % Dynamic TTC (time to bumper contact)
-            if vRelClosing > 0.4 && isfinite(minDist)
-                ttc = max(0.01, minDist - dStandstill) / vRelClosing;
+            effClosingSpeed = max(vx, vClosing);
+            
+            % Compute dynamic Time-to-Collision (TTC = d / v_rel)
+            if effClosingSpeed > 0.3 && isfinite(minDist)
+                ttc = minDist / effClosingSpeed;
             else
                 ttc = Inf;
             end
 
             isEvasive = (isfield(planInfo, 'IsEvasive') && planInfo.IsEvasive) || ...
                         (isfield(planInfo, 'LaneCommitted') && planInfo.LaneCommitted);
+            isClearLaterally = (obj.CurrentState(2) < -3.4); % Vehicle already established in outer lane corridor
 
-            % Priority 0 Guard: Critical emergency braking commanded by planner or bumper collision
-            isPlannerStop = (isfield(planInfo, 'IsEmergencyBraking') && planInfo.IsEmergencyBraking) || ...
-                            (isfield(planInfo, 'TargetSpeed') && planInfo.TargetSpeed <= 0.1);
-
-            if isPlannerStop || minDist <= dStandstill || ttc < 1.4
-                % Critical Emergency Braking (AEB)
+            if minDist <= obj.StopDistance || ttc < 1.4
+                % Critical Emergency Braking (AEB) - absolute contact guard
                 aCmd = obj.MaxDecel;
-            elseif isfinite(minDist) && minDist < 45.0
-                % Adaptive Cruise Control (ACC) Car-Following Law
-                gapErr = minDist - desiredGap;
-
-                if gapErr < -2.0
-                    % Closer than desired headway: smoothly decelerate to open up headway
-                    aDecel = -0.6 * vRelClosing + 0.35 * gapErr;
-                    aCmd = max(obj.MaxDecel, min(-0.4, aDecel));
-                elseif gapErr < 4.0
-                    % Within headway transition zone: smoothly match lead speed
-                    vTarget = min(obj.CruiseSpeed, max(2.5, vx - 0.7 * vRelClosing + 0.20 * gapErr));
-                    if isfield(planInfo, 'TargetSpeed') && planInfo.TargetSpeed > 0.5
-                        vTarget = min(vTarget, planInfo.TargetSpeed);
-                    end
-                    aCmd = max(-2.0, min(obj.MaxAccel, 1.0 * (vTarget - vx)));
-                else
-                    % Ample clearance (> desired gap): cruise at target pace
-                    targetSpeed = obj.CruiseSpeed;
-                    if isfield(planInfo, 'TargetSpeed') && planInfo.TargetSpeed > 0.5
-                        targetSpeed = min(targetSpeed, planInfo.TargetSpeed);
-                    end
-                    aCmd = max(-1.5, min(obj.MaxAccel, 1.0 * (targetSpeed - vx)));
-                end
+            elseif isEvasive && ~isClearLaterally && minDist > 5.5
+                % Lateral evasion underway: maintain safe controlled evasion pace (16 km/h) while steering around
+                targetSpeed = min(obj.CruiseSpeed, 4.44); % 16 km/h steady evasion speed
+                speedErr = targetSpeed - vx;
+                aCmd = max(-2.5, min(1.0, 1.2 * speedErr));
+            elseif isEvasive && isClearLaterally
+                % Successfully transitioned into clear evasion corridor: cruise safely in Lane -2
+                dynamicTargetSpeed = obj.CruiseSpeed;
+                speedErr = dynamicTargetSpeed - vx;
+                aCmd = max(-2.5, min(obj.MaxAccel, 1.2 * speedErr));
+            elseif minDist < obj.SafeDistance || ttc < 3.2
+                % First-principles kinematic stopping equation:
+                % v_f^2 = v_0^2 + 2 * a * d  =>  a_req = -v_0^2 / (2 * (d - d_stop))
+                availDist = max(0.5, minDist - obj.StopDistance);
+                aKinematic = -(effClosingSpeed^2) / (2 * availDist);
+                aCmd = max(obj.MaxDecel, min(-1.5, aKinematic));
             elseif cutinHazard.Active && cutinHazard.Distance < 25.0
-                % Cut-in vehicle detected entering our lane: yield smoothly
-                aCmd = -2.5;
+                % Flank sensor detects cut-in vehicle entering lane: anticipate & yield smoothly
+                aCmd = -4.0;
             else
-                % Normal Cruise Control with curvature coupling
+                % Dynamic Curvature-Coupled Target Speed (replaces fixed straight-line cruise)
+                % When executing a lane change, detour, or curve, smoothly decelerate to maintain
+                % comfortable lateral acceleration (a_lat_max <= 1.5 m/s^2), then accelerate back out:
                 dists_curv = hypot(obj.Waypoints(:, 1) - obj.CurrentState(1), obj.Waypoints(:, 2) - obj.CurrentState(2));
                 [~, cIdx] = min(dists_curv);
                 N_wps = size(obj.Waypoints, 1);
@@ -216,13 +204,10 @@ classdef autonomous_ego_controller < handle
 
                 aLatMax = 1.5; % Comfortable lateral acceleration limit (m/s^2)
                 vCurvLimit = sqrt(aLatMax / max(1e-4, curvNow));
-                dynamicTargetSpeed = min(obj.CruiseSpeed, max(4.0, vCurvLimit));
-                if isfield(planInfo, 'TargetSpeed') && planInfo.TargetSpeed > 0.5
-                    dynamicTargetSpeed = min(dynamicTargetSpeed, planInfo.TargetSpeed);
-                end
+                dynamicTargetSpeed = min(obj.CruiseSpeed, max(3.8, vCurvLimit));
 
                 speedErr = dynamicTargetSpeed - vx;
-                aCmd = max(-2.5, min(obj.MaxAccel, 1.2 * speedErr));
+                aCmd = max(-3.0, min(obj.MaxAccel, 1.2 * speedErr));
             end
             obj.LastAccel = aCmd;
 

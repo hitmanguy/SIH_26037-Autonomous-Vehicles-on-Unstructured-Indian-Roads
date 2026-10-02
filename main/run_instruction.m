@@ -57,7 +57,6 @@ function varargout = run_instruction(varargin)
     addpath(fullfile(rootDir, 'perception'));
     addpath(fullfile(rootDir, 'Sensor_fusion'));
     addpath(fullfile(rootDir, 'Trajectory'));
-    addpath(fullfile(rootDir, 'Path_planning_decision'));
 
     % Parse inputs and ensure autonomous mode is always engaged
     hasController = false;

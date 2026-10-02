@@ -10,7 +10,7 @@
 
 clear; clc; close all;
 here   = fileparts(mfilename('fullpath'));
-addpath(fullfile(here, "..", "A3_sahi"));
+addpath(fullfile(here, "..", "..", "matlab_sahi"));
 work   = fullfile(here, "..", "..", "work", "C4_v2");
 outDir = fullfile(work, "pothole_test");  if ~isfolder(outDir), mkdir(outDir); end
 S = load(fullfile(work, "v2_yolov8s_matlab.mat"));  det = S.det;
