@@ -6,7 +6,7 @@ classdef C3FullFrame < matlab.System
 %   count, overflow.
 
     properties (Nontunable)
-        DetectorFolder = 'D:\SIH\share\C3_detector_v1'
+        DetectorFolder = ''   % '' = Perception/C3_detector_v1 in this repo
         MaxDets        = 128
     end
 
@@ -17,7 +17,11 @@ classdef C3FullFrame < matlab.System
 
     methods (Access = protected)
         function setupImpl(obj)
-            addpath(obj.DetectorFolder);
+            folder = obj.DetectorFolder;
+            if isempty(folder)
+                folder = fullfile(fileparts(mfilename('fullpath')), '..', '..', 'C3_detector_v1');
+            end
+            addpath(folder);
             obj.Det = load_c3_detector();
             obj.Opts = sahiDefaultOpts('full');
         end

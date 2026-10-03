@@ -15,6 +15,7 @@ Run on the server:
 import argparse, os, random, collections, xml.etree.ElementTree as ET
 
 POTHOLE = 12
+SLOW = 17        # v2.1 slow_zone (RDD D43 = faded crosswalk) with --slow-codes D43
 
 
 def parse_xml(p):
@@ -42,6 +43,7 @@ def main():
     ap.add_argument('--pseudo-conf', type=float, default=0.5)
     ap.add_argument('--val-frac', type=float, default=0.1)
     ap.add_argument('--keep-empty', action='store_true')
+    ap.add_argument('--slow-codes', nargs='*', default=[], help='RDD codes to label as slow_zone (17), e.g. D43')
     a = ap.parse_args()
     a.src, a.out = (os.path.abspath(os.path.expanduser(p)) for p in (a.src, a.out))
 
@@ -61,11 +63,12 @@ def main():
                 stats['missing_image'] += 1; continue
             for n, _ in boxes:
                 names_seen[n] += 1
-            rows = [(POTHOLE, b) for n, b in boxes if n == 'D40']
+            rows = [(POTHOLE, b) for n, b in boxes if n == 'D40'] + [(SLOW, b) for n, b in boxes if n in a.slow_codes]
+            stats[f'{c}_slow_zone'] += sum(1 for n, _ in boxes if n in a.slow_codes)
             if not rows and not a.keep_empty:
-                stats['skipped_no_pothole'] += 1; continue
+                stats['skipped_no_pothole_or_slow'] += 1; continue
             items.append((c, img, f'rdd_{c}_{os.path.splitext(img_name)[0]}', rows))
-            stats[f'{c}_images'] += 1; stats[f'{c}_potholes'] += len(rows)
+            stats[f'{c}_images'] += 1; stats[f'{c}_potholes'] += sum(1 for r in rows if r[0] == POTHOLE)
 
     if a.weights:                                         # pseudo-label road users with v1
         from ultralytics import YOLO

@@ -36,8 +36,8 @@ This document lists all required MATLAB toolboxes and every file needed to start
 ---
 
 ### B. Track 1: Perception
-- **[`Perception/sahi_visualizer_and_benchmark.m`](file:///Users/test/Desktop/SIH/SIH_26037-Autonomous-Vehicles-on-Unstructured-Indian-Roads/Perception/sahi_visualizer_and_benchmark.m)**  
-  Evaluates C3 YOLOv8 detection accuracy and visualizes SAHI slicing on Indian Driving Dataset (IDD) camera frames.
+- **[`Perception/sahi/sahiDetect.m`](Perception/sahi/sahiDetect.m)** + **[`Perception/C3_detector_v1/load_c3_detector.m`](Perception/C3_detector_v1/load_c3_detector.m)**  
+  Camera detector (YOLOv8s, Indian classes) with the SAHI far-band pass; Simulink blocks in `Perception/sahi/simulink/`. See [`Perception/README.md`](Perception/README.md).
 - **[`Perception/c3_idd_detections.mat`](file:///Users/test/Desktop/SIH/SIH_26037-Autonomous-Vehicles-on-Unstructured-Indian-Roads/Perception/c3_idd_detections.mat)**  
   Precomputed YOLOv8 12-class detection bounding boxes, scores, and labels from real Indian roadway images.
 

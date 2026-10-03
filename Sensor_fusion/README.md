@@ -278,15 +278,15 @@ Tracker design:
 
 ---
 
-### 7.5 Perception-to-Fusion Early Track Seeding (Powered by `Perception/sahi_engine.py`)
+### 7.5 Perception-to-Fusion Early Track Seeding (SAHI far-band pass, `Perception/sahi/`)
 
 The Sensor Fusion tracking pipeline integrates detections from the **Perception Module** (see [`Perception/`](../Perception/README.md)):
 - **Near Field (0–40m):** Real-time full-frame YOLOv8s (15.6–30 Hz) provides immediate 2D bounding boxes for proximate actors.
-- **Far Horizon (40–150m):** The SAHI Dual-Band Slicing Engine (`Perception/sahi_engine.py`) finds **+23 objects with no full-frame match across the 4 IDD test views** (+36% over the 64 full-frame detections).
+- **Far Horizon (40–150m):** The SAHI far-band pass (`Perception/sahi/`) raises recall of 16–32 px road users from 17% to 47% on 1,127 IDD validation frames.
 - **Track Seeding Lead:** A 1.6 m bicycle approaching from 190 m is confirmed (3-of-5) by SAHI at ~174 m, versus ~64 m for full-frame YOLO: an **+13.2 s (+110 m) earlier track**, letting the Semantic IMM converge its covariance before the vehicle enters the braking envelope.
 
 > [!NOTE]
-> For the standalone SAHI slicing code, ONNX inference scripts, multi-view IDD detection benchmarks, and visual comparison dashboards, refer directly to the **[Perception Module Documentation](../Perception/README.md)**.
+> For the SAHI code, detector, and benchmarks, see the **[Perception Module Documentation](../Perception/README.md)**.
 
 ---
 
@@ -330,7 +330,7 @@ Sensor_fusion/
 - **Sensor Fusion and Tracking Toolbox**
 - **Computer Vision Toolbox**
 
-*(Note: For the Python SAHI slicing engine in `Perception/`, see [Perception Quick Start](../Perception/README.md#running-the-sahi-slicing-engine).)*
+*(Note: for the SAHI far-band pass (MATLAB/Simulink), see [Perception/sahi](../Perception/sahi/README.md).)*
 
 ### Quick Start Commands
 Run directly in the MATLAB Command Window:

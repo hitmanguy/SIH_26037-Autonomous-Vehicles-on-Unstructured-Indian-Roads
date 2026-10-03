@@ -37,7 +37,7 @@ cfg.dt_c3_yolo     = 0.064;   % ~15.6 Hz C3 YOLOv8s (64 ms latency on RTX 4050)
 cfg.dt_sahi_slice  = 0.200;   % 5 Hz SAHI Far-Band Slicing (200 ms)
 cfg.p_det_animal   = 0.55;    % empirical C3 detection probability for animals
 
-% Camera model (matches Perception/sahi_engine.py and the fusion bridge)
+% Camera model (matches Perception/sahi/sahiCameraPlaceholder.m and the fusion bridge)
 cfg.f_y          = 1200;      % px
 cfg.ff_scale     = 640 / 1920;% full-frame letterbox downscale
 cfg.px50         = 12;        % px height with 50% detection prob (~1.5 stride-8 cells)

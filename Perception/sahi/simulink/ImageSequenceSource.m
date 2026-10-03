@@ -5,7 +5,7 @@ classdef ImageSequenceSource < matlab.System
 %   Outputs I [ImageHeight x ImageWidth x 3] uint8 and frameIdx (which image).
 
     properties (Nontunable)
-        Folder      = 'D:\SIH\share\C3_detector_v1\test_images'
+        Folder      = ''   % '' = Perception/C3_detector_v1/test_images in this repo
         HoldSeconds = 0.5
         ImageHeight = 1080
         ImageWidth  = 1920
@@ -17,8 +17,12 @@ classdef ImageSequenceSource < matlab.System
 
     methods (Access = protected)
         function setupImpl(obj)
-            f = [dir(fullfile(obj.Folder, '*.jpg')); dir(fullfile(obj.Folder, '*.png'))];
-            assert(~isempty(f), 'No images in %s', obj.Folder);
+            folder = obj.Folder;
+            if isempty(folder)
+                folder = fullfile(fileparts(mfilename('fullpath')), '..', '..', 'C3_detector_v1', 'test_images');
+            end
+            f = [dir(fullfile(folder, '*.jpg')); dir(fullfile(folder, '*.png'))];
+            assert(~isempty(f), 'No images in %s', folder);
             obj.Frames = cell(numel(f), 1);
             for k = 1:numel(f)
                 I = imread(fullfile(f(k).folder, f(k).name));
