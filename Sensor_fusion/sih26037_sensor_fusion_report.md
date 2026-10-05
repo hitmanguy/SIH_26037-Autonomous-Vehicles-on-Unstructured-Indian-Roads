@@ -254,7 +254,7 @@ On the dense Bangalore arterial road frame (`highquality_16k`):
 - `rider`: $8 \rightarrow 9$ (**$+1$ rider detected**).
 - `car`: $10 \rightarrow 11$ (**$+1$ distant car detected**).
 
-![SAHI Slicing Perception Benchmark](../Perception/sahi_slicing_comparison.png)
+![SAHI Slicing Perception Benchmark](../Perception/sahi/results/B3_example_ff_vs_sahi.jpg)
 
 *Figure: (Top-Left) Standard Full-Frame YOLOv8s detection missing distant hazards (38 detections). (Top-Right) C3 YOLOv8s + SAHI Multi-Band Slicing with cyan markers pinpointing +17 newly discovered distant road users across Far and Near bands. (Bottom-Left) Class-wise detection gain breakdown in dense Bangalore traffic. (Bottom-Right) Mathematical resolution density curve proving the $3.0\times$ optical pixel density advantage for hazards at $40\text{–}150\text{ m}$. Full implementation and execution scripts reside in the [`Perception/`](../Perception/README.md) module.*
 

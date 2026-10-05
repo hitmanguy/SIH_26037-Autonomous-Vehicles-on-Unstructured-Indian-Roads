@@ -1,230 +1,102 @@
-# Perception: What the Car Sees, and How
-## C3 YOLOv8 IDD Detector + SAHI Dual-Band Slicing Engine
+# Perception — what the car sees
 
-**Team Epsilon | Smart India Hackathon 2026 | Problem Statement: SIH26037**  
-*Adaptive Path Planning and Collision Avoidance for Autonomous Vehicles on Unstructured Indian Roads*
+**Team Epsilon · SIH 2026 · PS 26037** (Adaptive Path Planning and Collision Avoidance on Unstructured Indian Roads)
 
----
+The camera side of perception does three jobs, each with the tool that suits it:
 
-## 1. Executive Summary
+| Job | How | Runs at |
+|---|---|---|
+| **Find road users and road hazards** (all 4 cameras) | YOLOv8s fine-tuned on Indian data, 18 classes, imported into MATLAB from ONNX | every frame (fast loop) |
+| **Catch small, far-away objects** (front camera) | SAHI: re-read one horizontal band of the image at full resolution, in tiles | 5 Hz (slow loop) |
+| **Know where the road is** (front camera) | DeepLab v3+ semantic segmentation of the drivable surface, trained in MATLAB | ~5 Hz |
 
-Autonomous navigation on unstructured Indian roads demands a perception architecture tailored to extreme traffic heterogeneity, high density, and unexpected roadway obstacles. Standard Western autonomous driving datasets (e.g. KITTI, nuScenes, Waymo) do not capture:
-- Informal lane discipline and erratic lateral cutting by three-wheelers (`autorickshaw`).
-- Dense clusters of two-wheelers (`motorcycle`, `bicycle`, `rider`).
-- Vulnerable pedestrians stepping unpredictably into traffic streams (`person`).
-- Unrestrained animals crossing or freezing in headlights (`animal` / stray cows).
-- Severe road surface anomalies, unpaved shoulders, and speed breakers.
-
-This directory implements the **Perception Pipeline** utilizing:
-1. **C3 IDD YOLOv8s Detector:** Fine-tuned on the India Driving Dataset (IDD) across 12 Indian-specific traffic classes (v1). v2 adds DriveIndia + RDD2022 and 5 classes (pothole, pushcart, tractor, emergency vehicle, cone/barrier); see §8.
-2. **SAHI (Slicing Aided Hyper Inference) Dual-Band Slicing Engine:** Solves the optical downscaling bottleneck on 1080p sensors, restoring native 1:1 sensor resolution for distant targets in the 40–150m horizon band.
-3. **Pinhole Inverse Perspective Mapping (IPM):** Projects 2D bounding boxes to 3D ego Cartesian coordinates to seed downstream multi-object tracking in `Sensor_fusion`.
-
----
-
-## 2. Perception Architecture
+Outputs are pixel boxes + class + score, and a road mask. Converting boxes to metres (camera geometry) and fusing them with radar happens in [`Sensor_fusion/`](../Sensor_fusion/).
 
 ```
-+---------------------------------------------------------------------------------------------------+
-|                                      CAMERA PERCEPTION PIPELINE                                   |
-|                                                                                                   |
-|  [Surround Camera Rig: 4x 1080p Views]                                                             |
-|   ├── Front Main (1080p, 60° HFOV)                                                                |
-|   ├── Front Bumper / Near (1080p, Wide Ground View)                                               |
-|   ├── Rear Wide (1080p, 120° HFOV)                                                                |
-|   └── Side Flank (1080p, Blind-Spot & Lateral Coverage)                                           |
-|                                                                                                   |
-|  ============================== MULTI-RATE DUAL-LOOP INFERENCE ==================================  |
-|                                                                                                   |
-|  (A) FAST PERCEPTION LOOP (15.6 - 30 Hz):                                                         |
-|      Full-Frame 1080p -> Letterbox Resize (640x640) -> YOLOv8s Inference                          |
-|      - Low latency, full-scene situational awareness.                                             |
-|      - High recall for near-field actors (0 - 40m).                                               |
-|                                                                                                   |
-|  (B) SLOW PERCEPTION LOOP (5 Hz - SAHI Slicing Engine):                                           |
-|      Full-Frame 1080p -> Dual-Band Functional Cropping:                                           |
-|      ├── Far Horizon Band (40 - 150m): Rows y in [400, 760 px] -> 640x360 Slices (35% overlap)    |
-|      └── Pothole / Near Road Band (15 - 30m): Rows y in [600, 1000 px]                             |
-|      - Preserves 1:1 native optical sensor resolution.                                            |
-|      - Tiles letterboxed without upscaling; 4 tiles/band always span the full image width.      |
-|                                                                                                   |
-|  (C) TILE REMAPPING, PER-TILE NMS & FRAGMENT-AWARE MERGE:                                         |
-|      Remap tile coordinates:  x_canvas = x_tile + x_offset,  y_canvas = y_tile + y_offset        |
-|      Per-inference NMS (IoU 0.45), then cross-tile merge (IoU 0.45 or IoS 0.6 for fragments).    |
-+---------------------------------------------------------------------------------------------------+
-                                   │
-                                   ▼  [3D Measurement Stream]
-                 --> Handoff to `Sensor_fusion/` (Semantic IMM Tracker)
+ camera frame (1920x1080)
+   ├── fast loop ── full frame → 640 letterbox → YOLOv8s ───────────────┐
+   │                                                                     ├─ merge (NMS + fragment-aware) → boxes → Sensor_fusion
+   └── slow loop (5 Hz, front cam) ── one band → 640xN tiles, batched ───┘
+                                       (reuses the fast loop's full-frame result)
 ```
 
 ---
 
-## 3. The Small & Distant Hazard Bottleneck on Indian Roads
+## Final design decisions
 
-### 3.1 Optical Resolution Degradation Under Naive Resizing
-Standard deep learning vision detectors operate at a fixed square input tensor (e.g. $640 \times 640\text{ px}$). When full $1920 \times 1080\text{ px}$ automotive camera feeds are letterboxed (aspect-preserving) to $640 \times 640$, visual resolution degrades by a factor of **$3.0\times$** in both axes.
+**Detector — v2.1, 18 classes.**
+person, rider, car, bus, truck, autorickshaw, motorcycle, bicycle, animal, traffic sign, traffic light, vehicle fallback, **pothole, pushcart, tractor, emergency vehicle, cone/barrier, slow_zone** (speed bump + zebra crossing + rumble strips, all meaning "slow down"; LiDAR can tell raised from painted).
+Classes follow *behaviour*: an ambulance or a pushcart needs a different reaction than a car, so they get their own class.
 
-Under pinhole perspective geometry:
+**SAHI — one band, not two.**
+The first prototype (Python, `sahi/python_reference/sahi_engine.py`) used two overlapping bands (rows 400–760 and 600–1000, 8 tiles) and took 720 ms per frame in MATLAB. The final version uses:
 
-```
-pixel_height = (target_real_height * focal_length) / distance
-```
+- **one band** covering 15–150 m ahead, with its rows computed from the camera geometry (`sahiBandRows.m`; rows 470–670 on the placeholder camera),
+- **640 × N tiles** (only as tall as the band, not padded to 640 × 640), **all tiles in one batched call**,
+- **reuse of the full-frame result** from the fast loop instead of running it again,
+- a stricter score (0.35) for boxes that only the tiles found, to keep false alarms down.
 
-For a typical $1080\text{p}$ automotive camera ($f_y \approx 1200\text{ px}$):
-- A $1.5\text{ m}$ tall pedestrian or motorcycle at $100\text{ m}$ projects to an optical height of **$18\text{ pixels}$** on the raw sensor.
-- When downscaled directly to $640 \times 640$, this target shrinks to just **$5.0\text{ pixels}$ tall**.
-- Because YOLOv8's finest feature pyramid level has a stride of $s = 8\text{ pixels}$, a $5\text{ px}$ target cannot trigger feature activation and is completely invisible until it closes to $< 45\text{ m}$.
-- At highway cruising speeds ($80\text{ km/h} \approx 22.2\text{ m/s}$), detecting a hazard at $45\text{ m}$ gives the vehicle only **$2.0\text{ seconds}$** to brake or swerve—insufficient for safe emergency avoidance on unpredictable roads.
+Result: **84 ms instead of 720 ms**, with recall within 1–3 points of the two-band version. The band is for the front camera only.
 
-### 3.2 Resolution Recovery via SAHI Slicing
-By cropping localized $640\text{ px}$ tiles directly from the unscaled $1080\text{p}$ image, **native $1:1$ sensor resolution is 100% preserved**. The distant pedestrian retains its full $18\text{ px}$ height, extending detection range for small road users toward $100\text{–}150\text{ m}$. In the `Sensor_fusion` Monte Carlo benchmark this confirms a 1.6 m bicycle at ~174 m instead of ~64 m (**+13.2 s earlier**, under an assumed $p_{det}=0.5$ at 12 px detection curve).
+**Runtime is MATLAB/Simulink only.** Python is used for training on the GPU server and as a test oracle; the trained network is exported to ONNX with a custom head cut (`detector/C3_v1_idd/export_for_matlab.py`) and imported with `importNetworkFromONNX`.
 
 ---
 
-## 4. Dual-Band Functional Slicing Geometry
+## Results
 
-Rather than tiling the entire image (which wastes compute on sky and ego-hood), `sahi_engine.py` implements the dual-band geometry specified in Team Epsilon's perception slide:
+**Detector** (mAP50 on validation sets)
 
-1. **Far Horizon Band ($40\text{–}150\text{ m}$ Lookahead):**
-   - Bounding row coordinates: $y \in [400, 760\text{ px}]$.
-   - Covers the vanishing point and distant road horizon where oncoming traffic, stalled vehicles, pedestrians, and cattle appear.
-   - Sliced into overlapping tiles of width $640\text{ px}$ with $35\%$ horizontal overlap.
-   - Runs asynchronously at $5\text{ Hz}$.
-2. **Pothole / Near Road Band ($15\text{–}30\text{ m}$ Lookahead):**
-   - Bounding row coordinates: $y \in [600, 1000\text{ px}]$.
-   - Focuses on the immediate road surface texture for negative obstacle / depression extraction.
-3. **Coordinate Remapping, NMS & Fragment-Aware Merging:**
-   - Tile coordinates $[x_{\text{tile}}, y_{\text{tile}}, w_{\text{tile}}, h_{\text{tile}}]$ are remapped back to full-frame canvas coordinates:
-     ```
-     x_canvas = x_tile + x_offset
-     y_canvas = y_tile + y_offset
-     ```
-   - Each inference (full frame or tile) gets its own class-aware NMS (IoU $0.45$).
-   - Detections from *different* inferences are then merged greedily: same-class boxes group if IoU $> 0.45$, or if intersection-over-smaller (IoS) $> 0.6$ and the pair looks like a fragment (one box touches an interior tile edge, or is < 50% of the other's area). Truncated boxes rank below complete ones, and a truncated group leader is grown to the union of its truncated partners, which reconstructs objects split across tiles.
-   - Plain IoU-NMS cannot remove a half-object cut off by a tile edge (its IoU with the full box is ~0.5 or lower). In the previous version **19 of the 40 "new" SAHI detections were such fragments**; the merge above removes all of them while keeping tightly parked two-wheelers separate.
-   - Tiles are letterboxed without upscaling (the previous version stretched 640×360 crops to 640×640), and tile origins are spaced evenly so they always cover the full image width (the previous stride of 420 px skipped the right-most 20 px).
+| | v1 | v2 | **v2.1 (final)** |
+|---|---:|---:|---:|
+| Classes | 12 | 17 | **18** |
+| Training data | IDD | IDD + DriveIndia + RDD2022 (59k imgs) | + more potholes, speed bumps (60k imgs) |
+| IDD val (12 shared classes) | 0.506 | 0.499 | **0.500** |
+| DriveIndia val (12 shared classes) | 0.523 | 0.773 | **0.779** (published YOLOv8 baseline: 0.787, different split) |
+| Pothole, 51 unseen RDD2022 photos | — | 0.377 | **0.422** (recall 31% → 40%) |
+| slow_zone (DriveIndia / RDD val) | — | — | **0.72 / 0.85** |
+| Speed in MATLAB (RTX 4050 laptop) | 39–64 ms | 85 ms | **45 ms** (22 fps) |
 
----
+Stock COCO YOLOv8s vs our v1 on the same IDD classes: 0.197 → 0.487 (autorickshaw 0 → 0.69, rider 0 → 0.56).
 
-## 5. Empirical Benchmark Across India Driving Dataset (IDD) Frames
+**SAHI** (1,127 IDD val front-camera frames, IoU 0.5) — recall of road users by box height:
 
-The SAHI slicing engine was evaluated across 4 real camera angles from the India Driving Dataset (`C3_detector_v1/test_images/`):
+| | <16 px | 16–32 px | 32–64 px | 64–128 px | ≥128 px |
+|---|---:|---:|---:|---:|---:|
+| Full frame only | 0.9% | 17.3% | 47.6% | 74.1% | 91.0% |
+| + SAHI band | **25.8%** | **47.2%** | **66.6%** | 79.8% | 91.5% |
 
-### 5.1 Multi-View Detection Benchmark Summary
+mAP50 0.40 → 0.51. Cost: false boxes 1.7 → 3.0 per frame (with the 0.35 tile-only score). Box-for-box identical to the Python prototype; runs in Simulink as a 5 Hz loop next to the full-frame loop.
 
-"New" = a SAHI detection with no same-class full-frame box matching it (IoU > 0.35 or IoS > 0.6). This is the conservative measure: the SAHI total can also grow when full-frame covered two adjacent objects (e.g. parked bikes) with one box.
-
-| Test Frame | Camera Viewpoint | Scene Context | Standard Full-Frame | C3 YOLOv8s + SAHI | New Objects (no full-frame match) |
-| :--- | :--- | :--- | :---: | :---: | :---: |
-| `highquality_16k` | Front Center (1080p) | Dense Urban Bangalore (Flyover, Crowded Lanes) | 42 | **59** | **+10** |
-| `frontNear` | Front Bumper | Village / Suburban Road (Open Horizon) | 7 | **13** | **+6** |
-| `rearNear` | Rear Wide | Highway Overtaking & Tailgaters | 7 | **12** | **+5** |
-| `sideLeft` | Side Flank | Lateral Blind-Spot & Pedestrians | 8 | **10** | **+2** |
-| **Total Across All Views** | — | — | **64** | **94** | **+23 (+36%)** |
-
-Compared with the previous engine (57 full-frame / 103 SAHI / +40 new): letterboxing raised full-frame detections from 57 to 64, and 19 of the previous 40 "new" detections were tile-edge fragments of already-detected objects, which the fragment-aware merge now removes. Without IDD ground-truth labels for these frames, precision/recall is not measured; these are detection counts.
-
-#### Runtime (CPU, ONNX Runtime, per 1080p frame)
-
-| | Previous engine | Current engine | `--fast` (single merged band) |
-| :--- | :---: | :---: | :---: |
-| Full-frame pass | 85 ms | 72 ms | 72 ms |
-| SAHI tiles | 8 stretched tiles | 8 letterboxed tiles, ~500 ms | 4 tiles, ~265 ms |
-| **Whole frame** | **~1200 ms** | **~575 ms** | **~340 ms** |
-
-`--fast` uses one 600 px band (rows 400–1000, still 1:1) instead of the two overlapping bands; on the 4 test frames it finds 18 instead of 23 new objects. The ONNX graph has a fixed batch size of 1, so tiles run sequentially; exporting with a dynamic batch axis (or using the CUDA/DirectML execution provider, picked automatically if installed) is the next speed-up.
-
-### 5.2 Class Breakdown in Dense Bangalore Traffic (`highquality_16k`)
-
-- `person`: $3 \rightarrow 9$ (**$+6$ distant pedestrians**).
-- `motorcycle`: $19 \rightarrow 24$ (**$+5$ two-wheelers**).
-- `rider`: $6 \rightarrow 9$ (**$+3$ riders**).
-- `autorickshaw`: $3 \rightarrow 4$ (**$+1$**).
-- `car`: $11 \rightarrow 12$ (**$+1$**).
-
-![SAHI Slicing Perception Benchmark](sahi_slicing_comparison.png)
-
-*Figure: (Top-Left) Standard Full-Frame YOLOv8s (42 detections). (Top-Right) C3 YOLOv8s + SAHI Dual-Band Slicing (59 detections) with cyan markers on the +10 objects that have no full-frame match; dashed boxes show the Far (rows 400–760) and Near (rows 600–1000) bands. (Bottom-Left) Class-wise detection gain breakdown in dense Bangalore traffic. (Bottom-Right) Mathematical resolution density curve proving the 3.0x optical pixel density advantage for hazards at 40–150m.*
+**Road segmentation:** DeepLab v3+ (ResNet-18) on IDD Lite, trained in MATLAB in 27 min — drivable-area IoU 88.6%, mIoU 59.2%, 53 ms per image.
 
 ---
 
-## 6. Handoff to Downstream Sensor Fusion
-
-Detections from the perception pipeline are projected into 3D metric ego Cartesian coordinates using inverse perspective mapping (IPM) on flat ground:
-
-```
-Z = (H_cam * f_y) / (v_bottom - c_y)
-X = ((u_center - c_x) * Z) / f_x
-```
-
-Where:
-- `H_cam`: Camera mounting height ($1.5\text{ m}$).
-- `[f_x, f_y]`: Camera focal lengths ($1200\text{ px}$).
-- `[c_x, c_y]`: Optical center principal point ($960, 540\text{ px}$).
-- `[u_center, v_bottom]`: Bounding box horizontal center and ground contact point.
-
-The projected 3D coordinates `[X, Z]` and class labels feed directly into `Sensor_fusion/c3_semantic_imm_tracker.m`, seeding confirmed tracks earlier. `sahi_engine.py` now also exports this flat-ground range estimate per detection (`ff_range_m`, `sahi_range_m`).
-
----
-
-## 7. Directory Structure & Execution
+## Folder map
 
 ```
 Perception/
-├── README.md                              # This comprehensive perception report
-├── plan.md                                # Perception system planning notes
-│
-├── sahi_engine.py                         # Standalone Python SAHI dual-band slicing engine (ONNX Runtime)
-├── sahi_visualizer_and_benchmark.m        # MATLAB visualizer & 4-panel SAHI benchmark generator
-│
-├── sahi_slicing_comparison.png           # 4-panel SAHI comparison, class breakdown, and resolution curve
-├── sahi_detection_results.mat            # Full-frame and sliced detections for all 4 IDD test frames
-├── sahi_benchmark_summary.mat            # Numerical benchmark logs for SAHI visualizer
-│
-├── matlab_sahi/                          # SAHI ported to MATLAB/Simulink (no Python at runtime), tests B1–B4
-└── detector/                             # Detector training data scripts (v1, v2, v2.1) + MATLAB import/tests
+├── README.md               this file
+├── C3_detector_v1/         ready-to-run MATLAB detector (v1, 12 classes) used by main/AutonomousAVStack.m
+│                           load_c3_detector.m → detector object · check_setup.m checks add-ons · test_images/
+├── c3_idd_detections.mat   saved v1 detections on IDD frames (fallback input for the integrated stack)
+├── sahi/                   SAHI far-band pass in MATLAB/Simulink   → sahi/README.md
+└── detector/               data scripts + MATLAB import for v1 → v2 → v2.1   → detector/README.md
 ```
 
-### Running the SAHI Slicing Engine
-
-#### 1. Run Python Inference
-```bash
-cd Perception
-python sahi_engine.py            # dual-band (default)
-python sahi_engine.py --fast     # single merged band, ~2x faster SAHI pass
-python sahi_engine.py my_frames/ # any folder or list of images
-```
-*Outputs `sahi_detection_results.mat` containing bounding boxes, confidence scores, labels, and new distant hazard flags.*
-
-#### 2. Run MATLAB Visualizer & Benchmark Suite
-```matlab
-cd Perception
-sahi_visualizer_and_benchmark
-```
-*Generates and displays the publication-grade 4-panel dashboard and saves `sahi_slicing_comparison.png`.*
+Only v1's weights are in this repo. The v2 / v2.1 weights are kept outside the repo; the scripts to rebuild and import them are in `detector/`.
 
 ---
 
-## 8. Status update (30 Sep 2026)
+## Planned next
 
-### 8.1 SAHI now runs in MATLAB / Simulink — [`matlab_sahi/`](matlab_sahi/)
-- Box-for-box identical to `sahi_engine.py` (B1).
-- 720 → **84 ms** per frame for the SAHI pass on an RTX 4050 laptop by batching 640xN tiles and reusing the full-frame result (B2).
-- Measured on 1,127 labelled IDD front-camera frames (B3): recall of 16–32 px road users **17% → 47%**, <16 px **1% → 26%**, mAP50 0.40 → 0.51; cost 1.7 → 4.1 false boxes per frame (3.0 with the tile-only score cut).
-- Runs as a 5 Hz Simulink loop next to the 30 Hz full-frame loop with fixed-size outputs (B4).
+- GPU Coder / TensorRT build so the full-frame loop reaches 30 Hz (plain MATLAB: ~22 fps).
+- Real camera intrinsics from the simulation rig → band rows and box-to-metre conversion (currently a placeholder camera: 1920×1080, f = 1200 px, height 1.5 m, pitch 0).
+- Unreal (Simulation 3D Camera) frames feeding the detector inside Simulink, replacing the still-image test source.
+- LiDAR ground-curvature check to confirm camera pothole candidates and measure depth.
+- More data for rare classes (pushcart, emergency vehicle) and night driving.
 
-### 8.2 Detector v2 / v2.1 — [`detector/`](detector/)
-| | v1 | v2 |
-|---|---|---|
-| Classes | 12 | 17 (+ pothole, pushcart, tractor, emergency vehicle, cone/barrier) |
-| Data | IDD | IDD + DriveIndia + RDD2022 (59k images) |
-| IDD val mAP50 (12 shared classes) | 0.506 | 0.499 |
-| DriveIndia val mAP50 (12 shared classes) | 0.523 | 0.773 |
-| Pothole mAP50 (RDD2022 val) | — | 0.445 |
+## Known limits
 
-v2.1 (training now) adds a `slow_zone` class (speed bumps, zebra crossings, rumble strips — all mean "slow down"; LiDAR separates raised from painted) and more potholes.
-
-### 8.3 Corrections to earlier text
-- The detector used above (§2–§5) is v1, trained on **IDD only**. DATS_2022 and INTSD are planned, not yet used.
-- MATLAB's `detect()` from the YOLO add-on drops boxes scoring below ~0.5 even with `Threshold=0.25`, so detection counts made with it are low. `sahiDetect` uses its own decoder.
-- The camera numbers (f 1200 px, h 1.5 m, pitch 0) are a placeholder until the simulation camera is fixed.
+- MATLAB's `detect()` from the YOLO add-on silently drops boxes scoring below ~0.5. Use `sahiDetect` (own decoder) when low scores matter, e.g. potholes and slow zones.
+- Pothole detection from the camera alone is modest (0.42 mAP50); it is a candidate generator, not the final word.
+- No species-level animal class; dusk/night animals are sometimes labelled as person.

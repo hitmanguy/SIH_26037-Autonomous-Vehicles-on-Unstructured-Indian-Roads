@@ -12,11 +12,11 @@
 
 clear; clc;
 here    = fileparts(mfilename('fullpath'));
-pkg     = 'D:\SIH\share\C3_detector_v1';
+pkg     = fullfile(here, '..', '..', 'C3_detector_v1');   % detector package in this repo
 dataDir = 'D:\SIH\Dataset\IDD_val_yolo';
 outDir  = 'D:\SIH\work\A3_sahi\B3_accuracy';
 if ~isfolder(outDir), mkdir(outDir); end
-addpath(pkg); addpath(here);
+addpath(pkg); addpath(here, fullfile(here, ".."), fullfile(here, "..", "simulink"));   % tests/ -> sahi/ core + simulink/
 logFile = fullfile(outDir, 'B3_accuracy_log.txt');
 if isfile(logFile), delete(logFile); end
 diary(logFile); cleanupDiary = onCleanup(@() diary('off'));

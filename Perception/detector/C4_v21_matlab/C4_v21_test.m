@@ -1,19 +1,19 @@
-%% C4 pothole test - show v2 potholes that detect() hides
+%% C4b v2.1 test - potholes (red) and slow_zone (cyan) with our own decoder
 % SIH PS26037 · Team Epsilon · Perception (camera)
 %
 % WHY: detect(det,...) from the YOLO add-on silently drops boxes scoring < ~0.5.
 %      v2 finds potholes but scores them 0.1-0.4, so they never showed up.
 %      Here we use our own decoder (sahiDetect, A3) with a per-class threshold.
 %
-% NEEDS: C4_import_v2.m run once (makes ../../work/C4_v2/v2_yolov8s_matlab.mat)
-% OUTPUT: ../../work/C4_v2/pothole_test/<image>_full.png and _tiles.png
+% NEEDS: C4_import_v21.m run once (makes ../../work/C4_v21/v21_yolov8s_matlab.mat)
+% OUTPUT: ../../work/C4_v21/pothole_test/<image>_full.png and _tiles.png
 
 clear; clc; close all;
 here   = fileparts(mfilename('fullpath'));
 addpath(fullfile(here, "..", "..", "sahi"));
-work   = fullfile(here, "..", "..", "work", "C4_v2");
+work   = fullfile(here, "..", "..", "work", "C4_v21");
 outDir = fullfile(work, "pothole_test");  if ~isfolder(outDir), mkdir(outDir); end
-S = load(fullfile(work, "v2_yolov8s_matlab.mat"));  det = S.det;
+S = load(fullfile(work, "v21_yolov8s_matlab.mat"));  det = S.det;
 
 % ---- thresholds: everything at 0.25, potholes lower (they score low) ----
 POTHOLE_CONF = 0.15;
@@ -29,7 +29,7 @@ for k = 1:numel(files)
         opts = sahiDefaultOpts(char(mode));
         opts.Conf = min(POTHOLE_CONF, OTHER_CONF);
         [bb, sc, lb] = sahiDetect(det, I, opts);
-        isP  = lb == "pothole";
+        isP  = lb == "pothole" | lb == "slow_zone";
         keep = (isP & sc >= POTHOLE_CONF) | (~isP & sc >= OTHER_CONF);
         bb = bb(keep,:); sc = sc(keep); lb = lb(keep); isP = isP(keep);
 
@@ -42,7 +42,7 @@ for k = 1:numel(files)
         end
         if any(isP)
             J = insertObjectAnnotation(J, "rectangle", bb(isP,:), ...
-                "pothole " + compose("%.2f", sc(isP)), ...
+                string(lb(isP)) + " " + compose("%.2f", sc(isP)), ...
                 LineWidth=lw, FontSize=fs, TextBoxOpacity=0.8, AnnotationColor="red");
         end
         imwrite(J, fullfile(outDir, base + "_" + mode + ".png"));

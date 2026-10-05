@@ -19,7 +19,7 @@ classdef SahiSlowLoop < matlab.System
 %   test_B4_simulink.m for the list of what GPU Coder would need changed).
 
     properties (Nontunable)
-        DetectorFolder = 'D:\SIH\share\C3_detector_v1'
+        DetectorFolder = ''   % '' = Perception/C3_detector_v1 in this repo
         MaxDets        = 128
         TileOnlyConf   = 0.35
         RectInput      = true
@@ -33,7 +33,11 @@ classdef SahiSlowLoop < matlab.System
 
     methods (Access = protected)
         function setupImpl(obj)
-            addpath(obj.DetectorFolder);
+            folder = obj.DetectorFolder;
+            if isempty(folder)
+                folder = fullfile(fileparts(mfilename('fullpath')), '..', '..', 'C3_detector_v1');
+            end
+            addpath(folder);
             obj.Det = load_c3_detector();
             o = sahiDefaultOpts('v1');
             o.TileOnlyConf = obj.TileOnlyConf;

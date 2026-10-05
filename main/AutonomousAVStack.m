@@ -113,7 +113,8 @@ classdef AutonomousAVStack < handle
             end
             addpath(fullfile(base_dir, 'main'));
             addpath(fullfile(base_dir, 'perception', 'C3_detector_v1'));
-            addpath(fullfile(base_dir, 'perception', 'matlab_sahi'));
+            addpath(fullfile(base_dir, 'perception', 'sahi'));
+            addpath(fullfile(base_dir, 'perception', 'sahi', 'simulink'));
             addpath(fullfile(base_dir, 'Sensor_fusion'));
             addpath(fullfile(base_dir, 'Trajectory'));
             addpath(fullfile(base_dir, 'Path_planning_decision'));

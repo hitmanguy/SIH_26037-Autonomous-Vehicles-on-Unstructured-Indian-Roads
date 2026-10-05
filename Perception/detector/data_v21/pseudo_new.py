@@ -45,14 +45,21 @@ def main():
     ap.add_argument('--relabel-overlap', action='store_true',
                     help='replace an IDD fallback/truck/car box by the new class instead of skipping')
     ap.add_argument('--batch', type=int, default=32)
+    ap.add_argument('--conf', type=float, default=None, help='override the confidence bar for all chosen classes')
+    ap.add_argument('--splits', nargs='+', default=['train', 'val'], help='e.g. --splits train (keep val human-labelled)')
     a = ap.parse_args()
     a.idd, a.out = (os.path.abspath(os.path.expanduser(p)) for p in (a.idd, a.out))
     use = {c: NEW[c] for c in a.classes}
+    if a.conf is not None:
+        for c in use: CONF[c] = a.conf
 
     from ultralytics import YOLO
     model = YOLO(os.path.expanduser(a.teacher))
     stats = collections.Counter()
-    for split in ('train', 'val'):
+    os.makedirs(a.out, exist_ok=True)
+    log = open(os.path.join(a.out, 'added.csv'), 'w')
+    log.write('split,image,class,name,conf,cx,cy,w,h,action\n')
+    for split in a.splits:
         idir = os.path.join(a.idd, 'images', split); ldir = os.path.join(a.idd, 'labels', split)
         if not os.path.isdir(idir):
             print('missing', idir); continue
@@ -76,14 +83,18 @@ def main():
                     c = int(c); b = tuple(b)
                     if c not in use or cf < CONF[c]:
                         continue
+                    if any(row[0] == c and iou(row[1], b) > 0.3 for row in rows):
+                        stats[f'{split}_already_labelled_{NEW[c]}'] += 1; continue   # no duplicates
                     hit = [row for row in rows if row[0] in IDD_OVERLAP.get(c, set()) and iou(row[1], b) > 0.5]
                     if hit:
                         if a.relabel_overlap:
                             hit[0][0] = c; stats[f'{split}_relabel_{NEW[c]}'] += 1
+                            log.write(f'{split},{img},{c},{NEW[c]},{cf:.3f},{b[0]:.5f},{b[1]:.5f},{b[2]:.5f},{b[3]:.5f},relabel\n')
                         else:
                             stats[f'{split}_skip_on_idd_box_{NEW[c]}'] += 1
                         continue
                     rows.append([c, b]); stats[f'{split}_added_{NEW[c]}'] += 1
+                    log.write(f'{split},{img},{c},{NEW[c]},{cf:.3f},{b[0]:.5f},{b[1]:.5f},{b[2]:.5f},{b[3]:.5f},added\n')
                 with open(os.path.join(ol, stem + '.txt'), 'w') as f:
                     for c, b in rows:
                         f.write(f'{c} {b[0]:.6f} {b[1]:.6f} {b[2]:.6f} {b[3]:.6f}\n')
@@ -96,6 +107,7 @@ def main():
             f.write('\n'.join(lst) + '\n')
         stats[f'{split}_images'] = len(lst)
         print()
+    log.close()
     rep = [f'== teacher pseudo-labels {sorted(use)} on {a.idd} =='] + [f'{k:40s} {v}' for k, v in sorted(stats.items())]
     txt = '\n'.join(rep); print(txt)
     open(os.path.join(a.out, 'report.txt'), 'w').write(txt + '\n')

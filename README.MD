@@ -97,13 +97,13 @@ Each block above corresponds to one of the five task tracks described below and 
 
 ## Perception in Detail
 
-The perception stage is documented separately in a three-page technical breakdown included in this repository, which covers the reasoning behind the design in more depth than this file does. In summary, the approach separates detection into three complementary jobs rather than relying on a single model.
+Perception splits the camera's job into three parts instead of relying on one model. Full details, results and the folder map are in [`Perception/README.md`](Perception/README.md).
 
-A YOLOv8 detector, fine-tuned on a merged label set drawn from the Indian Driving Dataset, DriveIndia, DATS_2022, and INTSD, handles agent detection across all four cameras at full frame rate. This model was chosen because it recorded the strongest overall mAP50 among five candidates benchmarked on the Indian DriveIndia dataset. A separate slicing pass over the front camera, run at a lower rate, is used to catch small or distant objects such as potholes and pedestrians that a full-frame pass tends to miss. A third pipeline performs per-pixel semantic segmentation of drivable surface, since road and non-road boundaries in unmarked or unpaved conditions cannot be represented reliably as bounding boxes.
+A YOLOv8s detector, fine-tuned on the Indian Driving Dataset (IDD), DriveIndia and RDD2022 road-damage images (about 60,000 images, 18 classes including autorickshaw, pushcart, tractor, pothole and a merged speed-bump / zebra-crossing "slow zone" class), finds road users on every camera. It reaches 0.78 mAP50 on the DriveIndia validation set (the published YOLOv8 baseline reports 0.79) and runs at about 45 ms per frame in MATLAB after ONNX import. A second, slower pass (SAHI) re-reads one horizontal band of the front camera at full resolution to catch small or distant road users that the full-frame pass misses: on 1,127 IDD frames it lifts recall of 16-32 px road users from 17% to 47%, at 84 ms per pass, and runs as a 5 Hz Simulink loop. A third model, DeepLab v3+ trained in MATLAB, segments the drivable surface (88.6% IoU on IDD Lite), since unmarked or unpaved road edges cannot be described with boxes.
 
-Pothole detection is treated as a distinct problem from ordinary obstacle detection, since a pothole is a depression rather than a protrusion and does not produce a consistent visual signature across lighting conditions. The proposed approach generates candidate regions from the camera pipeline and confirms them geometrically using LiDAR ground-plane curvature analysis, before injecting a graduated cost into the planning layer rather than treating every pothole as a hard obstacle.
+Potholes are a depression rather than an object, so camera detections are treated as candidates. The plan is to confirm them with LiDAR ground-curvature analysis and hand the planner a graded cost (shallow dip vs deep cavity) instead of a hard obstacle.
 
-The known weak points of this pipeline, including limited detection accuracy on small or rare object classes such as pushcarts and the absence of any species-level animal classification in existing Indian driving datasets, are documented in the perception PDF and in the consolidated technical report.
+Known weak points: rare classes (pushcart, emergency vehicles) have little training data, there is no species-level animal class, and the camera calibration used so far is a placeholder until the simulation camera is fixed.
 
 ## Toolchain
 

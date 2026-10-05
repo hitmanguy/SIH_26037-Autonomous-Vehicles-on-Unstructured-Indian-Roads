@@ -17,6 +17,7 @@ ap = argparse.ArgumentParser()
 ap.add_argument('--src', default=os.path.expanduser('~/epsilon_yash/data/rdd2022'))
 ap.add_argument('--out', default=os.path.expanduser('~/epsilon_yash/review'))
 ap.add_argument('--countries', nargs='+', default=None, help='default: every extracted country folder')
+ap.add_argument('--code', default='D20', help='damage code for the crop sheets (e.g. D43)')
 a = ap.parse_args()
 os.makedirs(a.out, exist_ok=True)
 COL = {'D40': (255, 0, 0), 'D20': (255, 150, 0)}
@@ -49,7 +50,7 @@ for c in countries:
         for code in ('D40', 'D20'):
             k = names.count(code)
             cnt[code] += k; cnt['img_' + code] += k > 0
-        if any(n in COL for n in names) and os.path.isfile(img):
+        if any(n in COL or n == a.code for n in names) and os.path.isfile(img):
             items.append((img, objs))
     rnd = random.Random(0)
     # --- full-frame view sheet (4 x 5)
@@ -66,19 +67,19 @@ for c in countries:
         sheet.paste(im, ((k % 5) * T + 3, (k // 5) * T + 33))
     sheet.save(os.path.join(a.out, f'view_{c}.jpg'), quality=85)
     # --- D20 crop sheet (5 x 6)
-    d20 = [(img, b) for img, objs in items for n, b in objs if n == 'D20']
+    d20 = [(img, b) for img, objs in items for n, b in objs if n == a.code]
     pick = rnd.sample(d20, min(30, len(d20)))
     S = 240; sheet = Image.new('RGB', (5 * S, 6 * S + 30), 'white'); d = ImageDraw.Draw(sheet)
-    d.text((8, 8), f'RDD2022 {c}: 30 random D20 (alligator cracking) boxes = would become damaged_road', fill='black')
+    d.text((8, 8), f'RDD2022 {c}: 30 random {a.code} boxes', fill='black')
     for k, (img, (x1, y1, x2, y2)) in enumerate(pick):
         im = Image.open(img).convert('RGB'); W, H = im.size
         m = max(x2 - x1, y2 - y1) * 0.5 + 30
         cx1, cy1 = max(0, x1 - m), max(0, y1 - m)
         cr = im.crop((cx1, cy1, min(W, x2 + m), min(H, y2 + m)))
-        ImageDraw.Draw(cr).rectangle((x1 - cx1, y1 - cy1, x2 - cx1, y2 - cy1), outline=COL['D20'], width=4)
+        ImageDraw.Draw(cr).rectangle((x1 - cx1, y1 - cy1, x2 - cx1, y2 - cy1), outline=(0, 255, 0), width=4)
         cr.thumbnail((S - 6, S - 6))
         sheet.paste(cr, ((k % 5) * S + 3, (k // 5) * S + 33))
-    sheet.save(os.path.join(a.out, f'd20_{c}.jpg'), quality=85)
+    sheet.save(os.path.join(a.out, f'{a.code.lower()}_{c}.jpg'), quality=85)
     sz = ', '.join(f'{w}x{h}' for (w, h), _ in sizes.most_common(2))
     print(f"{c:18s} {cnt['images']:7d} {cnt['img_D40']:10d} {cnt['D40']:6d} {cnt['img_D20']:10d} {cnt['D20']:6d}  {sz}")
 print('\nsheets in', a.out)
