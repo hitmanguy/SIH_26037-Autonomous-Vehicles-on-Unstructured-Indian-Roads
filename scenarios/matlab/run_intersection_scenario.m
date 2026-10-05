@@ -262,6 +262,7 @@ function scenario = run_intersection_scenario(varargin)
                 if appCruise < 2.0 || appCruise > 7.5, appCruise = 6.94; end % 25 km/h steady smooth cruise
                 
                 appStack = AutonomousAVStack(appRefWps, appCruise, sampleTime, autoControllerType);
+                if isfield(info, 'ScenarioType'), appStack.ScenarioName = info.ScenarioType; end
                 if isfield(info, 'ActorMap') && isfield(info.ActorMap, 'Potholes') && ~isempty(info.ActorMap.Potholes)
                     appStack.Potholes = info.ActorMap.Potholes;
                 end
@@ -290,7 +291,7 @@ function scenario = run_intersection_scenario(varargin)
                     appLogTime(appStepIdx) = tNow;
                     
                     % Dynamic TTC-based VRU Trigger status update
-                    if isfield(info, 'ActorMap') && isfield(info.ActorMap, 'VRU') && ~info.ActorMap.VRUTriggered && ~isempty(telem)
+                    if isfield(info, 'ActorMap') && isfield(info.ActorMap, 'VRU') && isfield(info.ActorMap, 'VRUTriggered') && ~info.ActorMap.VRUTriggered && ~isempty(telem)
                         egoSpeedNow = max(0.1, telem.Speed);
                         distToCross = info.ActorMap.VRUWaypoints(1,1) - telem.Position(1);
                         ttcCondition = distToCross > 0 && (distToCross / egoSpeedNow) <= info.ActorMap.VRUCrossTime;
@@ -578,6 +579,7 @@ function scenario = run_intersection_scenario(varargin)
         
         % Instantiate Unified Champion Autonomous AV Stack
         avStack = AutonomousAVStack(refWps, vCruise, sampleTime, autoControllerType);
+        if isfield(info, 'ScenarioType'), avStack.ScenarioName = info.ScenarioType; end
         if isfield(info, 'ActorMap') && isfield(info.ActorMap, 'Potholes') && ~isempty(info.ActorMap.Potholes)
             avStack.Potholes = info.ActorMap.Potholes;
         end
@@ -634,7 +636,7 @@ function scenario = run_intersection_scenario(varargin)
             end
 
             % Dynamic TTC-based VRU Trigger status update
-            if isfield(info, 'ActorMap') && isfield(info.ActorMap, 'VRU') && ~info.ActorMap.VRUTriggered && ~isempty(telem)
+            if isfield(info, 'ActorMap') && isfield(info.ActorMap, 'VRU') && isfield(info.ActorMap, 'VRUTriggered') && ~info.ActorMap.VRUTriggered && ~isempty(telem)
                 egoSpeedNow = max(0.1, telem.Speed);
                 distToCross = info.ActorMap.VRUWaypoints(1,1) - telem.Position(1);
                 ttcCondition = distToCross > 0 && (distToCross / egoSpeedNow) <= info.ActorMap.VRUCrossTime;

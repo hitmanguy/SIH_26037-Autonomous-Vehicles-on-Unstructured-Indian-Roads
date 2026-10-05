@@ -21,7 +21,7 @@ classdef dynamic_trajectory_planner < handle
         % Road and Geometry Parameters (Indian Urban Arterial)
         RoadBounds          = [-6.20, -0.60]  % Allowed lateral envelope on Ego's own side [m]
         CruisingLaneY       = -1.75           % Lane -1 center (m)
-        PassingLaneY        = -5.00           % Lane -2 center (m)
+        PassingLaneY        = -4.75           % Lane -2 center (m) - safe margin from curb
         CenterDividerY      = -0.60           % Critical boundary: Y > -0.60 is oncoming traffic!
         OuterShoulderY      = -6.20           % Road edge curb (m)
         LaneWidth           = 3.50            % Standard lane width (m)
@@ -32,7 +32,7 @@ classdef dynamic_trajectory_planner < handle
         Width               = 2.00            % (m)
         
         % Planning Horizons & Sampling
-        Horizons            = [2.0, 3.0, 4.0] % Candidate trajectory durations T [s]
+        Horizons            = [3.0, 4.0, 5.0] % Candidate trajectory durations T [s] (smooth transitions)
         TargetSpeed         = 6.94            % Nominal cruise speed (m/s) ~ 25 km/h
         PlanHorizonMeters   = 50.0            % Spatial lookahead distance (m)
         ReplanDistance      = 0.50            % Waypoint spatial discretization (m)
@@ -54,6 +54,8 @@ classdef dynamic_trajectory_planner < handle
         LastPlannedWps      = []              % Active planned waypoints cache
         LastPlanTime        = -1.0            % Timestamp of last replan
         ReplanInterval      = 0.10            % 10 Hz replan rate (s)
+        LastLaneChangeTime  = -10.0           % Timestamp of last committed lane switch
+        MinLaneDwellTime    = 4.5             % Minimum dwell duration (s) in lane before switching
     end
 
     methods
@@ -76,6 +78,7 @@ classdef dynamic_trajectory_planner < handle
             obj.LastTargetY = obj.CruisingLaneY;
             obj.LastPlannedWps = [];
             obj.LastPlanTime = -1.0;
+            obj.LastLaneChangeTime = -10.0;
         end
 
         function [wps, planInfo] = replan(obj, currentState, globalWaypoints, fusedTracks, currentSteer, simTime)
@@ -119,77 +122,103 @@ classdef dynamic_trajectory_planner < handle
 
             for i = 1:numel(parsedObstacles)
                 obs = parsedObstacles(i);
+                cLower = lower(char(obs.Class));
+                isVRU = contains(cLower, 'pedestrian') || contains(cLower, 'person') || ...
+                        contains(cLower, 'vru') || contains(cLower, 'child');
+                if isVRU
+                    continue; % Crossing VRUs are handled by longitudinal AEB/ACC, not lateral overtaking lane changes
+                end
+                
                 dx = obs.X - x0;
                 
-                % Obstacle within forward 45m range
-                if dx > 1.0 && dx < 45.0
-                    % Cruising lane corridor check (Y in [-2.75, -0.75])
-                    if abs(obs.Y - obj.CruisingLaneY) < 1.4
-                        cruisingLaneBlocked = true;
-                        if obs.X < critObstacleX
-                            critObstacleX = obs.X;
-                        end
-                    end
-                    % Passing lane corridor check (Y in [-6.00, -4.00])
-                    if abs(obs.Y - obj.PassingLaneY) < 1.4
-                        passingLaneBlocked = true;
-                    end
+                % Check if passing lane (Lane -2) has ANY obstacle ahead (moving or static)
+                % Entry into Lane -2 is only blocked if an obstacle occupies the lane change corridor (dx in [-2, 22] m).
+                % If already committed to Lane -2, Lane -2 is blocked ahead if an obstacle is within 35m.
+                if obj.LaneCommitted
+                    obsBlockedPassing = (abs(obs.Y - obj.PassingLaneY) < 1.4 && dx > -2.0 && dx < 35.0);
+                else
+                    obsBlockedPassing = (abs(obs.Y - obj.PassingLaneY) < 1.4 && dx > -2.0 && dx < 22.0);
+                end
+                if obsBlockedPassing
+                    passingLaneBlocked = true;
+                end
+
+                % Cruising lane (Lane -1) blockage:
+                % Vehicles moving forward in traffic (Vx > 2.0 m/s) are handled by ACC car-following.
+                % Head-on oncoming vehicles (Vx < -1.0 m/s) are an immediate emergency: detect up to 75m ahead!
+                % Static / stopped blockages (Vx <= 2.0 m/s) are detected up to 45m ahead.
+                isHeadOn = (obs.Vx < -1.0);
+                isMovingTraffic = (obs.Vx > 2.0);
+                if isHeadOn && abs(obs.Y - obj.CruisingLaneY) < 1.4 && dx > 2.0 && dx < 75.0
+                    cruisingLaneBlocked = true;
+                    if obs.X < critObstacleX, critObstacleX = obs.X; end
+                elseif ~isMovingTraffic && ~isHeadOn && abs(obs.Y - obj.CruisingLaneY) < 1.4 && dx > 2.0 && dx < 45.0
+                    cruisingLaneBlocked = true;
+                    if obs.X < critObstacleX, critObstacleX = obs.X; end
                 end
             end
 
-            % Update Lane Commitment State Machine
-            if cruisingLaneBlocked && ~passingLaneBlocked
-                % Trigger Evasion & Lock Commitment into Lane -2
-                obj.LaneCommitted = true;
-                obj.CommittedY = obj.PassingLaneY;
-                obj.CommitmentHoldUntilX = critObstacleX + 25.0; % Hold until 25m past hazard
-            elseif obj.LaneCommitted
-                % Check if downstream route deliberately returns to Lane -1
-                downstreamWantsLane1 = false;
-                if ~isempty(globalWaypoints)
-                    futureIdx = find(globalWaypoints(:, 1) > x0 + 15.0, 1);
-                    if ~isempty(futureIdx) && abs(globalWaypoints(futureIdx, 2) - obj.CruisingLaneY) < 0.5
-                        downstreamWantsLane1 = true;
-                    end
-                end
+            % Update Lane Commitment State Machine with Anti-Chatter Hysteresis
+            canSwitchLane = (simTime - obj.LastLaneChangeTime >= obj.MinLaneDwellTime);
 
-                % Stay committed to Lane -2 UNLESS downstream route explicitly calls for Lane -1 AND cruising lane is clear!
-                if x0 >= obj.CommitmentHoldUntilX && ~cruisingLaneBlocked && downstreamWantsLane1
-                    % Safe and intended to return smoothly to nominal cruising lane
+            if obj.LaneCommitted
+                % Already committed to Lane -2: STAY in Lane -2!
+                % Only return to Lane -1 if Lane -2 itself is blocked AND Lane -1 is clear AND dwell time elapsed
+                if passingLaneBlocked && ~cruisingLaneBlocked && canSwitchLane
                     obj.LaneCommitted = false;
                     obj.CommittedY = obj.CruisingLaneY;
+                    obj.LastLaneChangeTime = simTime;
                 else
-                    % Maintain rock-solid lock on Lane -2
                     obj.LaneCommitted = true;
                     obj.CommittedY = obj.PassingLaneY;
                 end
+            elseif cruisingLaneBlocked && ~passingLaneBlocked && canSwitchLane
+                % Cruising lane blocked and passing lane clear: Commit to Lane -2
+                obj.LaneCommitted = true;
+                obj.CommittedY = obj.PassingLaneY;
+                obj.LastLaneChangeTime = simTime;
             else
                 obj.CommittedY = obj.CruisingLaneY;
             end
 
             % 3. Generate Candidate Lateral Targets (Indian Road Evasion Corridor)
             % Never plan targets that enter oncoming traffic (Y > -0.60m)
+            % The in-lane "hold" option is ALWAYS evaluated: when every lateral evasion is
+            % blocked (e.g. parked cars on the shoulder), the correct lateral behaviour is to
+            % stay in lane and let the longitudinal TTC/AEB supervisor brake - not to swerve
+            % into a worse collision.
+            if inPassingLane || (obj.LaneCommitted && abs(y0 - obj.PassingLaneY) < abs(y0 - obj.CruisingLaneY))
+                holdY = obj.PassingLaneY;
+            else
+                holdY = obj.CruisingLaneY;
+            end
+
             if obj.LaneCommitted
-                % When committed to Lane -2: primary target is Lane -2, with minor lateral nudges
-                candidateTargets = [obj.PassingLaneY, obj.PassingLaneY - 0.40, obj.PassingLaneY + 0.50];
+                % When committed to Lane -2: stay smoothly centered in Lane -2
+                candidateTargets = [obj.PassingLaneY, obj.PassingLaneY - 0.15, obj.PassingLaneY + 0.15];
                 preferredTargetY = obj.PassingLaneY;
-            elseif cruisingLaneBlocked
-                % Cruising lane blocked: sample Lane -2 and shoulder bypass
-                candidateTargets = [obj.PassingLaneY, obj.PassingLaneY - 0.50, -3.50];
+            elseif cruisingLaneBlocked && ~passingLaneBlocked
+                % Cruising lane blocked and passing lane clear: sample centered Lane -2
+                candidateTargets = [obj.PassingLaneY, obj.PassingLaneY + 0.20, obj.PassingLaneY - 0.15];
                 preferredTargetY = obj.PassingLaneY;
+            elseif cruisingLaneBlocked && passingLaneBlocked
+                % Both lanes blocked: HOLD current lane and let ACC/AEB brake safely!
+                candidateTargets = [holdY, holdY - 0.10, holdY + 0.10];
+                preferredTargetY = holdY;
             else
                 % Road clear: stay in Cruising Lane -1, with minor adjustments
-                candidateTargets = [obj.CruisingLaneY, obj.CruisingLaneY - 0.50, obj.CruisingLaneY + 0.40];
+                candidateTargets = [obj.CruisingLaneY, obj.CruisingLaneY - 0.15, obj.CruisingLaneY + 0.15];
                 preferredTargetY = obj.CruisingLaneY;
+            end
+            if ~any(abs(candidateTargets - holdY) < 1e-6)
+                candidateTargets(end+1) = holdY;
             end
 
             % Initial Frenet lateral state [d0, dot_d0, ddot_d0]
             % d is lateral position Y in world frame
             d0 = y0;
-            dot_d0 = v0 * sin(psi0);
-            % Initial lateral acceleration from steering angle: a_lat = (v^2 / L) * tan(delta)
-            ddot_d0 = (v0^2 / obj.Wheelbase) * tan(currentSteer);
-            ddot_d0 = max(-2.5, min(2.5, ddot_d0)); % Saturate to feasible acceleration
+            dot_d0 = 0.35 * v0 * sin(psi0);
+            ddot_d0 = 0.0;
 
             % 4. Spatiotemporal Candidate Generation & Cost Optimization (Lattice Search)
             bestCost = Inf;
@@ -234,7 +263,13 @@ classdef dynamic_trajectory_planner < handle
                                 obj.w_commit * commitCost;
 
                     if isCollision
-                        totalCost = totalCost + obj.w_collision;
+                        if abs(d1 - holdY) < 1e-6
+                            % Hold-lane: longitudinal AEB/ACC resolves this; far cheaper than
+                            % any lateral move that physically hits something.
+                            totalCost = totalCost + 1e-3 * obj.w_collision;
+                        else
+                            totalCost = totalCost + obj.w_collision;
+                        end
                     else
                         % Proximity cost: encourage healthy clearance margins
                         if minClearance < 3.5
@@ -275,8 +310,8 @@ classdef dynamic_trajectory_planner < handle
                 trajY(k) = bestTrajectory.calc_pos(tk);
             end
 
-            % Enforce strictly that planned trajectory NEVER crosses into oncoming lane
-            trajY = max(obj.OuterShoulderY + 0.15, min(obj.CenterDividerY - 0.15, trajY));
+            % Enforce strictly that planned trajectory NEVER crosses into oncoming lane or curb
+            trajY = max(obj.OuterShoulderY + 0.50, min(obj.CenterDividerY - 0.40, trajY));
 
             % 6. Smoothly Stitch with Downstream Global Waypoints
             if ~isempty(globalWaypoints) && size(globalWaypoints, 1) >= 2
@@ -286,8 +321,11 @@ classdef dynamic_trajectory_planner < handle
 
                 if matchIdx < size(globalWaypoints, 1)
                     remainingGlobal = globalWaypoints(matchIdx+1:end, :);
-                    % Guarantee C^1 continuity: Downstream waypoints seamlessly follow the end of the planned maneuver
-                    remainingGlobal(:, 2) = trajY(end);
+                    isStraightRoad = (max(abs(diff(globalWaypoints(:,2)))) < 1.0) && ...
+                                     (all(diff(globalWaypoints(:,1)) > -0.1));
+                    if isStraightRoad
+                        remainingGlobal(:, 2) = trajY(end);
+                    end
                     fullWps = [trajX, trajY; remainingGlobal];
                 else
                     % Synthesize forward extension at current committed lane covering full road (350m)
@@ -459,12 +497,23 @@ classdef dynamic_trajectory_planner < handle
                 resampled = wps;
                 return;
             end
+            % Remove consecutive duplicate points
+            d_consec = hypot(diff(wps(:, 1)), diff(wps(:, 2)));
+            keep = [true; d_consec > 1e-4];
+            wps = wps(keep, :);
+            if size(wps, 1) < 2
+                resampled = wps;
+                return;
+            end
+
             % Compute cumulative chord length
             d = hypot(diff(wps(:, 1)), diff(wps(:, 2)));
             s = [0; cumsum(d)];
-            totalLen = s(end);
+            [s_uniq, uIdx] = unique(s, 'stable');
+            wps = wps(uIdx, :);
+            totalLen = s_uniq(end);
 
-            if totalLen < ds
+            if totalLen < ds || numel(s_uniq) < 2
                 resampled = wps;
                 return;
             end
@@ -474,8 +523,8 @@ classdef dynamic_trajectory_planner < handle
                 s_query = [s_query; totalLen];
             end
 
-            x_interp = interp1(s, wps(:, 1), s_query, 'linear');
-            y_interp = interp1(s, wps(:, 2), s_query, 'linear');
+            x_interp = interp1(s_uniq, wps(:, 1), s_query, 'linear');
+            y_interp = interp1(s_uniq, wps(:, 2), s_query, 'linear');
             resampled = [x_interp, y_interp];
         end
     end

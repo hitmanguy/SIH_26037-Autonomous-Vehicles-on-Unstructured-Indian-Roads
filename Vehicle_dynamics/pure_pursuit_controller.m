@@ -13,9 +13,9 @@ classdef pure_pursuit_controller < handle
         Waypoints            % Nx2 reference path waypoints [X, Y]
         Wheelbase = 2.8      % Vehicle wheelbase L (meters)
         lr = 1.6             % CG to rear axle distance (meters)
-        MinLookahead = 3.5   % Minimum lookahead distance (meters)
-        MaxLookahead = 9.5   % Maximum lookahead distance (meters)
-        LookaheadGain = 0.42 % Speed scaling factor (seconds)
+        MinLookahead = 5.5   % Minimum lookahead distance (meters)
+        MaxLookahead = 14.0  % Maximum lookahead distance (meters)
+        LookaheadGain = 0.95 % Speed scaling factor (seconds)
         MaxSteering = 0.45   % Maximum front steering angle (rad) ~ 25.8 deg
         MaxSteerRate = 0.35  % Maximum steering rate (rad/s)
         
@@ -138,7 +138,7 @@ classdef pure_pursuit_controller < handle
             epsi = wrapToPi(yaw - tangentYaw);
             
             k_stanley = 0.35;
-            delta_stanley = atan(k_stanley * ey / (vx + 1.0));
+            delta_stanley = -atan(k_stanley * ey / (vx + 1.0)) - 0.25 * epsi;
 
             % 7. Curvature Feedforward Steering
             delta_ff = atan(obj.Wheelbase * curvature);

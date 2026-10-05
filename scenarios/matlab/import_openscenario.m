@@ -496,7 +496,7 @@ function scType = detect_scenario_type(xoscFile, desc, params)
         scType = 'INDIAN_TWOWHEELER';
     elseif contains(fUpper, 'INDIAN_PEDESTRIAN_JAYWALK') || contains(dUpper, 'JAYWALK')
         scType = 'INDIAN_JAYWALK';
-    elseif contains(fUpper, 'INDIAN_STRAYCATTLE') || contains(dUpper, 'CATTLE') || contains(fUpper, 'HAZARD')
+    elseif contains(fUpper, 'INDIAN_STRAYCATTLE') || contains(dUpper, 'CATTLE') || contains(fUpper, 'STRAYCATTLE')
         scType = 'INDIAN_CATTLE';
     elseif contains(fUpper, 'CONGESTION') || contains(dUpper, 'CONGESTION')
         scType = 'INDIAN_CONGESTION';
@@ -1458,7 +1458,10 @@ function [scenario, actorMap] = setup_indian_wrongway_scenario(scenario, entitie
         'AssetType', egoData.AssetType, 'Length', egoData.Length, ...
         'Width', egoData.Width, 'Height', egoData.Height, 'PlotColor', [0.10 0.45 0.95]);
 
-    if enableAEB
+    if liberateEgo
+        egoWaypoints = [20.0, -1.75, 0.0; 340.0, -1.75, 0.0];
+        egoSpeeds = [egoSpeed, egoSpeed];
+    elseif enableAEB
         % Ego detects oncoming vehicle, brakes hard, swerves to outer lane
         egoWaypoints = [
             20.0,  -1.75, 0.0;   % Cruising in lane 1
@@ -1789,7 +1792,10 @@ function [scenario, actorMap] = setup_indian_gauntlet_scenario(scenario, entitie
         'AssetType', egoData.AssetType, 'Length', egoData.Length, ...
         'Width', egoData.Width, 'Height', egoData.Height, 'PlotColor', [0.10 0.45 0.95]);
 
-    if enableAEB
+    if liberateEgo
+        egoWaypoints = [15.0, -1.75, 0.0; 340.0, -1.75, 0.0];
+        egoSpeeds = [egoSpeed, egoSpeed];
+    elseif enableAEB
         % Phase 1: Overtake rickshaw via outer lane
         % Phase 2: Detour around construction barriers via opposing lane
         % Phase 3: Emergency brake for jaywalker

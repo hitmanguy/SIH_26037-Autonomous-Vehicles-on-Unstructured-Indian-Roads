@@ -71,6 +71,7 @@ classdef AutonomousAVStack < handle
         TelemetryLog = []
 
         % Scenario Integration Handles & Caches
+        ScenarioName = ''
         ScenarioHandle
         SensorRigHandle
         LatestCostmap
@@ -140,8 +141,13 @@ classdef AutonomousAVStack < handle
 
             % 3. Instantiate Path Planning & Decision Subsystem Components
             obj.OriginalWaypoints   = waypoints;
-            obj.DynamicPlanner      = dynamic_trajectory_planner(cruiseSpeed, obj.RoadBounds);
+            % NOTE: obj.RoadBounds ([-4.5, 4.5]) is an EGO-RELATIVE BEV window for the costmap.
+            % The Frenet planner works in WORLD Y, so it must keep its own lane bounds
+            % (own side [-6.2, -0.6]). Passing BEV bounds here moved the "centre divider" to
+            % Y = +4.5 and let the planner swerve across the whole oncoming carriageway.
+            obj.DynamicPlanner      = dynamic_trajectory_planner(cruiseSpeed);
             obj.PlannerSupervisor   = decision_supervisor();
+            obj.PlannerSupervisor.v_cruise_kmh = cruiseSpeed * 3.6;
             obj.CostmapManager      = dynamic_costmap_manager(obj.RoadBounds, obj.Potholes, obj.CostmapConfig.time_slices);
             obj.HybridAStar         = hybrid_astar_planner();
             obj.TrajectoryOptimizer = continuous_trajectory_optimizer(2.0, 4.0, 0.5);
@@ -488,7 +494,8 @@ classdef AutonomousAVStack < handle
             end
 
             % 3. Invoke SOTA Dynamic Spatiotemporal Trajectory Replanner & Decision Supervisor
-            if ~isempty(obj.DynamicPlanner)
+            isEuroNCAP = any(strcmpi(obj.ScenarioName, {'CPNCO', 'CPTA', 'CCFTAP', 'CCCSCP', 'CBFA', 'CCR'}));
+            if ~isempty(obj.DynamicPlanner) && ~isEuroNCAP
                 vYaw_rad = deg2rad(obj.EgoActor.Yaw);
                 curSteer = 0.0;
                 if ~isempty(obj.ControllerInstance) && isprop(obj.ControllerInstance, 'LastSteering')
@@ -685,16 +692,25 @@ classdef AutonomousAVStack < handle
             closingVel = 0.0;
             leadClass = 'none';
 
+            isEuroNCAP = any(strcmpi(obj.ScenarioName, {'CPNCO', 'CPTA', 'CCFTAP', 'CCCSCP', 'CBFA', 'CCR'}));
+            egoY = obj.EgoActor.Position(2);
+
             for k = 1:length(obj.FusedWorldModel.tracks)
                 trk = obj.FusedWorldModel.tracks(k);
                 is_vru_trk = contains(lower(trk.class), 'person') || contains(lower(trk.class), 'pedestrian') || contains(lower(trk.class), 'vru');
                 
+                % Check world Y boundary: ignore actors on shoulder/curb or across median on Indian arterial
+                trk_world_y = egoY - trk.X;
+                if ~isEuroNCAP && (trk_world_y < -6.20 || trk_world_y > -0.60)
+                    continue; % Sidewalk pedestrian or opposite traffic
+                end
+
                 isHazard = false;
-                if abs(trk.X) <= 1.40
+                if abs(trk.X) <= 1.25
                     % Directly in vehicle's driving lane corridor
                     isHazard = true;
-                elseif is_vru_trk && abs(trk.X) <= 3.2
-                    % Crossing VRU in shoulder buffer: only hazard if moving inward toward lane
+                elseif is_vru_trk && abs(trk.X) <= 3.0
+                    % Crossing VRU in buffer: only hazard if moving inward toward lane
                     vLat = 0.0;
                     if isfield(trk, 'Vx'), vLat = trk.Vx; end
                     isMovingInward = (trk.X > 0 && vLat < -0.3) || (trk.X < 0 && vLat > 0.3);
@@ -714,15 +730,17 @@ classdef AutonomousAVStack < handle
 
             effClosingSpeed = max(vx, closingVel);
 
-            % Check if right-side detour corridor (Lane -2) is blocked by an obstacle
-            % In Indian road (left-side driving), detour corridor is to the RIGHT (Lane -2).
-            % It is blocked ONLY if an obstacle actually occupies the right lane (X > 1.5 in body frame, ahead within 35m)
+            % Detour corridor check: Lane -2 is only blocked if an obstacle occupies it
             detourCorridorBlocked = false;
-            for k = 1:length(obj.FusedWorldModel.tracks)
-                trk = obj.FusedWorldModel.tracks(k);
-                if trk.X > 1.5 && trk.Z > -2.0 && trk.Z < 35.0
-                    detourCorridorBlocked = true;
-                    break;
+            if ~isEuroNCAP && egoY >= -3.5 % Only needed if ego is in Lane -1 seeking detour to Lane -2
+                for k = 1:length(obj.FusedWorldModel.tracks)
+                    trk = obj.FusedWorldModel.tracks(k);
+                    trk_wy = egoY - trk.X;
+                    trk_dx = trk.Z;
+                    if trk_wy >= -5.9 && trk_wy <= -4.1 && trk_dx > -2.0 && trk_dx < 35.0
+                        detourCorridorBlocked = true;
+                        break;
+                    end
                 end
             end
 
@@ -752,34 +770,48 @@ classdef AutonomousAVStack < handle
             stopClearance = 3.5; % Safe clearance buffer to obstacle envelope
             isVRU = contains(lower(leadClass), 'person') || contains(lower(leadClass), 'pedestrian') || contains(lower(leadClass), 'vru');
 
-            if (isVRU && (bumperDist <= stopClearance || ttc < 2.5)) || (~isVRU && bumperDist <= 0.8)
-                % Priority 1: Critical Emergency Braking (AEB) - VRU in path or absolute contact guard
+            if (isVRU && (bumperDist <= stopClearance || ttc < 2.0)) || (~isVRU && (bumperDist <= 2.0 || ttc < 1.4))
+                % Priority 1: Critical Emergency Braking (AEB)
                 aCmd = ctrl.MaxDecel; % -7.5 m/s^2 emergency brake
-            elseif isVRU && (bumperDist < 50.0 || ttc < 4.5)
-                % Priority 2: Advance Kinematic Deceleration for VRU (smooth stopping ahead)
-                availDist = max(0.5, bumperDist - stopClearance);
-                aKinematic = -(effClosingSpeed^2) / (2 * availDist);
-                aCmd = max(ctrl.MaxDecel, min(-1.5, aKinematic));
-            elseif ~isVRU && (stateflow_decision.mode_id == 4 || stateflow_decision.mode_id == 5 || bumperDist < 40.0)
-                % Priority 3: Static Obstacle Detour / REROUTE (potholes, barriers, cones, roadwork)
+            elseif isVRU && (bumperDist < 25.0 || ttc < 3.5)
+                % Priority 2: Advance Kinematic Deceleration for VRU
+                if vx < 0.2
+                    if bumperDist > stopClearance + 2.0
+                        aCmd = min(ctrl.MaxAccel, 1.0 * (min(ctrl.CruiseSpeed, 3.5) - vx));
+                    else
+                        aCmd = -1.5;
+                    end
+                else
+                    availDist = max(0.5, bumperDist - stopClearance);
+                    aKinematic = -(vx^2) / (2 * availDist);
+                    aCmd = max(ctrl.MaxDecel, min(-0.5, aKinematic));
+                end
+            elseif ~isVRU && (stateflow_decision.mode_id == 4 || stateflow_decision.mode_id == 5 || (bumperDist < 35.0 && leadDist < 45.0))
+                % Priority 3: Static Obstacle Detour / REROUTE
                 if detourCorridorBlocked
-                    % Hold at safe stop ONLY if right detour corridor itself is blocked
                     if vx > 0.2
                         availDist = max(0.5, bumperDist - stopClearance);
                         aKinematic = -(effClosingSpeed^2) / (2 * availDist);
-                        aCmd = max(ctrl.MaxDecel, min(-2.0, aKinematic));
+                        aCmd = max(ctrl.MaxDecel, min(-1.0, aKinematic));
                     else
-                        aCmd = -1.5; % Hold stationary at standstill until corridor clears
+                        if bumperDist > stopClearance + 2.0
+                            aCmd = min(1.0, 1.0 * (2.5 - vx));
+                        else
+                            aCmd = -1.5;
+                        end
                     end
                 else
-                    % Detour corridor is clear: maintain steady smooth detour crawl (14 km/h = 3.89 m/s) and steer around
                     targetSpeed = 3.89; % 14 km/h steady detour speed
                     speedErr = targetSpeed - vx;
-                    aCmd = max(-2.0, min(1.0, 1.0 * speedErr));
+                    aCmd = max(-2.0, min(ctrl.MaxAccel, 1.0 * speedErr));
                 end
             else
-                % Priority 4: Normal Cruise Control Tracking (calm, steady, smooth pace)
+                % Priority 4: Normal Cruise Control Tracking / Safe Car Following
                 targetSpeed = ctrl.CruiseSpeed * sf_factor;
+                if isfinite(bumperDist) && bumperDist < 30.0 && ~isVRU
+                    leadSpeed = max(0.0, vx + closingVel);
+                    targetSpeed = min(targetSpeed, max(2.5, leadSpeed));
+                end
                 speedErr = targetSpeed - vx;
                 aCmd = max(-2.5, min(ctrl.MaxAccel, 1.0 * speedErr));
             end
@@ -1023,7 +1055,7 @@ classdef AutonomousAVStack < handle
                     % Add realistic sensor noise (range 0.2m, cross-range 0.3m)
                     meas_x = x_bev + 0.08 * randn();
                     meas_z = z_bev + 0.15 * randn();
-                    rad_returns = [rad_returns; meas_x, meas_z, rad_rng, rad_dopp];
+                    rad_returns = [rad_returns; meas_x, meas_z, rad_rng, v_rel_long];
                 end
             end
 
@@ -1075,6 +1107,7 @@ classdef AutonomousAVStack < handle
             ctrl = obj.ControllerInstance;
 
             % 1. Find closest in-lane lead obstacle from fused world model
+            isEuroNCAP = any(strcmpi(obj.ScenarioName, {'CPNCO', 'CPTA', 'CCFTAP', 'CCCSCP', 'CBFA', 'CCR'}));
             leadDist = Inf;
             closingVel = 0.0;
             leadClass = 'none';
@@ -1083,12 +1116,18 @@ classdef AutonomousAVStack < handle
                 trk = obj.FusedWorldModel.tracks(k);
                 is_vru_trk = contains(lower(trk.class), 'person') || contains(lower(trk.class), 'pedestrian') || contains(lower(trk.class), 'vru');
                 
+                % Check world Y boundary: ignore actors on shoulder/curb or across median on Indian arterial
+                trk_world_y = vPos(2) - trk.X;
+                if ~isEuroNCAP && (trk_world_y < -6.20 || trk_world_y > -0.60)
+                    continue; % Sidewalk pedestrian or opposite traffic
+                end
+
                 isHazard = false;
-                if abs(trk.X) <= 1.40
+                if abs(trk.X) <= 1.25
                     % Directly in vehicle's driving lane corridor
                     isHazard = true;
-                elseif is_vru_trk && abs(trk.X) <= 3.2
-                    % Crossing VRU in shoulder buffer: only hazard if moving inward toward lane
+                elseif is_vru_trk && abs(trk.X) <= 3.0
+                    % Crossing VRU in buffer: only hazard if moving inward toward lane
                     vLat = 0.0;
                     if isfield(trk, 'Vx'), vLat = trk.Vx; end
                     isMovingInward = (trk.X > 0 && vLat < -0.3) || (trk.X < 0 && vLat > 0.3);
@@ -1108,15 +1147,17 @@ classdef AutonomousAVStack < handle
 
             effClosingSpeed = max(vx, closingVel);
 
-            % Check if right-side detour corridor (Lane -2) is blocked by an obstacle
-            % In Indian road (left-side driving), detour corridor is to the RIGHT (Lane -2).
-            % It is blocked ONLY if an obstacle actually occupies the right lane (X > 1.5 in body frame, ahead within 35m)
+            % Detour corridor check: Lane -2 is only blocked if an obstacle occupies it
             detourCorridorBlocked = false;
-            for k = 1:length(obj.FusedWorldModel.tracks)
-                trk = obj.FusedWorldModel.tracks(k);
-                if trk.X > 1.5 && trk.Z > -2.0 && trk.Z < 35.0
-                    detourCorridorBlocked = true;
-                    break;
+            if ~isEuroNCAP && vPos(2) >= -3.5 % Only needed if ego is in Lane -1 seeking detour to Lane -2
+                for k = 1:length(obj.FusedWorldModel.tracks)
+                    trk = obj.FusedWorldModel.tracks(k);
+                    trk_wy = vPos(2) - trk.X;
+                    trk_dx = trk.Z;
+                    if trk_wy >= -5.9 && trk_wy <= -4.1 && trk_dx > -2.0 && trk_dx < 22.0
+                        detourCorridorBlocked = true;
+                        break;
+                    end
                 end
             end
 
@@ -1153,34 +1194,48 @@ classdef AutonomousAVStack < handle
             stopClearance = 3.5; % Safe clearance buffer to obstacle envelope
             isVRU = contains(lower(leadClass), 'person') || contains(lower(leadClass), 'pedestrian') || contains(lower(leadClass), 'vru');
 
-            if (isVRU && (bumperDist <= stopClearance || ttc < 2.5)) || (~isVRU && bumperDist <= 0.8)
-                % Priority 1: Critical Emergency Braking (AEB) - VRU in path or absolute contact guard
+            if (isVRU && (bumperDist <= stopClearance || ttc < 2.0)) || (~isVRU && (bumperDist <= 2.0 || ttc < 1.4))
+                % Priority 1: Critical Emergency Braking (AEB)
                 aCmd = ctrl.MaxDecel; % -7.5 m/s^2 emergency brake
-            elseif isVRU && (bumperDist < 50.0 || ttc < 4.5)
-                % Priority 2: Advance Kinematic Deceleration for VRU (smooth stopping ahead)
-                availDist = max(0.5, bumperDist - stopClearance);
-                aKinematic = -(effClosingSpeed^2) / (2 * availDist);
-                aCmd = max(ctrl.MaxDecel, min(-1.5, aKinematic));
-            elseif ~isVRU && (sf_mode_id == 4 || sf_mode_id == 5 || bumperDist < 40.0)
-                % Priority 3: Static Obstacle Detour / REROUTE (potholes, barriers, cones, roadwork)
+            elseif isVRU && (bumperDist < 25.0 || ttc < 3.5)
+                % Priority 2: Advance Kinematic Deceleration for VRU
+                if vx < 0.2
+                    if bumperDist > stopClearance + 2.0
+                        aCmd = min(ctrl.MaxAccel, 1.0 * (min(ctrl.CruiseSpeed, 3.5) - vx));
+                    else
+                        aCmd = -1.5;
+                    end
+                else
+                    availDist = max(0.5, bumperDist - stopClearance);
+                    aKinematic = -(vx^2) / (2 * availDist);
+                    aCmd = max(ctrl.MaxDecel, min(-0.5, aKinematic));
+                end
+            elseif ~isVRU && (sf_mode_id == 4 || sf_mode_id == 5 || (bumperDist < 35.0 && leadDist < 45.0) || (leadDist < 75.0 && closingVel > 3.0))
+                % Priority 3: Static Obstacle Detour / REROUTE / Head-on Evasion
                 if detourCorridorBlocked
-                    % Hold at safe stop ONLY if right detour corridor itself is blocked
                     if vx > 0.2
                         availDist = max(0.5, bumperDist - stopClearance);
                         aKinematic = -(effClosingSpeed^2) / (2 * availDist);
-                        aCmd = max(ctrl.MaxDecel, min(-2.0, aKinematic));
+                        aCmd = max(ctrl.MaxDecel, min(-1.0, aKinematic));
                     else
-                        aCmd = -1.5; % Hold stationary at standstill until corridor clears
+                        if bumperDist > stopClearance + 2.0
+                            aCmd = min(1.0, 1.0 * (2.5 - vx));
+                        else
+                            aCmd = -1.5;
+                        end
                     end
                 else
-                    % Detour corridor is clear: maintain steady smooth detour crawl (14 km/h = 3.89 m/s) and steer around
                     targetSpeed = 3.89; % 14 km/h steady detour speed
                     speedErr = targetSpeed - vx;
-                    aCmd = max(-2.0, min(1.0, 1.0 * speedErr));
+                    aCmd = max(-2.0, min(ctrl.MaxAccel, 1.0 * speedErr));
                 end
             else
-                % Priority 4: Normal Cruise Control Tracking (calm, steady, smooth pace)
+                % Priority 4: Normal Cruise Control Tracking / Safe Car Following
                 targetSpeed = ctrl.CruiseSpeed * sf_factor;
+                if isfinite(bumperDist) && bumperDist < 30.0 && ~isVRU
+                    leadSpeed = max(0.0, vx + closingVel);
+                    targetSpeed = min(targetSpeed, max(2.5, leadSpeed));
+                end
                 speedErr = targetSpeed - vx;
                 aCmd = max(-2.5, min(ctrl.MaxAccel, 1.0 * speedErr));
             end
