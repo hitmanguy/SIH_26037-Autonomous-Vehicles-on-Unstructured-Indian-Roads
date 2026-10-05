@@ -156,28 +156,12 @@ The Simulink block `simulink_prediction_block.m` is designed for direct code gen
 
 ---
 
-## 6. Validation Across the 5 Indian Road Scenarios
 
-The prediction engine was benchmarked against the 5 validation scenarios specified in Problem Statement 26037 over a $3.0\text{ s}$ horizon ($H=30$ steps):
 
-| # | Validation Scenario | Constant Velocity ADE / FDE | Standard Kalman ADE / FDE | Proposed MotionFormer ADE / FDE | Error Reduction | Mean Latency |
-| :-: | :--- | :---: | :---: | :---: | :---: | :---: |
-| **1** | **Unmarked Village Road** (Wandering cattle & shoulder dip) | $1.42\text{ m} / 2.80\text{ m}$ | $0.95\text{ m} / 1.85\text{ m}$ | **$0.28\text{ m} / 0.55\text{ m}$** | **-70.5%** | $1.45\text{ ms}$ |
-| **2** | **Unsignalled Urban Intersection** (Nudging auto-rickshaws) | $2.15\text{ m} / 4.30\text{ m}$ | $1.48\text{ m} / 2.90\text{ m}$ | **$0.38\text{ m} / 0.72\text{ m}$** | **-74.3%** | $1.62\text{ ms}$ |
-| **3** | **Highway Merge with Slow Vehicles** (Tractor / pushcart) | $1.85\text{ m} / 3.60\text{ m}$ | $1.15\text{ m} / 2.20\text{ m}$ | **$0.25\text{ m} / 0.48\text{ m}$** | **-78.3%** | $1.38\text{ ms}$ |
-| **4** | **Dense Market Area** (Erratic pedestrians & bikes) | $2.45\text{ m} / 4.80\text{ m}$ | $1.65\text{ m} / 3.10\text{ m}$ | **$0.42\text{ m} / 0.85\text{ m}$** | **-74.5%** | $1.85\text{ ms}$ |
-| **5** | **Sudden Cattle-Crossing Event** (Zero-velocity freeze in lane) | $3.85\text{ m} / 7.50\text{ m}$ | $2.65\text{ m} / 5.20\text{ m}$ | **$0.35\text{ m} / 0.65\text{ m}$** | **-86.8%** | $1.50\text{ ms}$ |
-| **Σ** | **Overall Mean Across All Scenarios** | **$2.34\text{ m} / 4.60\text{ m}$** | **$1.58\text{ m} / 3.05\text{ m}$** | **$0.34\text{ m} / 0.65\text{ m}$** | **-78.5%** | **$1.56\text{ ms}$** |
-
-> **Key Performance Highlight:** In Scenario 5 (Sudden Cattle Freeze), baseline CV and Kalman predictors produce catastrophic displacement errors ($> 5.2\text{ m}$), predicting the cow continues walking forward into the oncoming lane. The proposed MotionFormer immediately shifts probability mass to the **Zero-Velocity Freeze Mode** ($\pi = 0.45 \to 0.85$), triggering a Stateflow emergency `STOP` command with a safety margin of $12.4\text{ m}$.
-
----
-
-## 7. File Manifest & Architecture Map
+## 6. File Manifest & Architecture Map
 
 | File | Purpose & Role |
-| :--- | :--- |
-| [`plan.md`](file:///Users/test/Desktop/SIH/SIH_26037-Autonomous-Vehicles-on-Unstructured-Indian-Roads/Trajectory/plan.md) | Technical plan, mathematical derivation, and milestone roadmap |
+
 | [`motionformer_engine.py`](file:///Users/test/Desktop/SIH/SIH_26037-Autonomous-Vehicles-on-Unstructured-Indian-Roads/Trajectory/motionformer_engine.py) | PyTorch MotionFormer + BEV Cross-Attention + GMM Decoder + ONNX Exporter |
 | [`download_pretrained_weights.py`](file:///Users/test/Desktop/SIH/SIH_26037-Autonomous-Vehicles-on-Unstructured-Indian-Roads/Trajectory/download_pretrained_weights.py) | Automated downloader, verification, and staging utility for model weights |
 | [`trajectory_prediction_engine.m`](file:///Users/test/Desktop/SIH/SIH_26037-Autonomous-Vehicles-on-Unstructured-Indian-Roads/Trajectory/trajectory_prediction_engine.m) | Native MATLAB Trajectory Prediction Engine (DL ONNX + Semantic IMM-GMM) |
@@ -189,8 +173,4 @@ The prediction engine was benchmarked against the 5 validation scenarios specifi
 | [`test_prediction_pipeline.py`](file:///Users/test/Desktop/SIH/SIH_26037-Autonomous-Vehicles-on-Unstructured-Indian-Roads/Trajectory/test_prediction_pipeline.py) | Comprehensive unit test suite (architecture, GMM math, ONNX, weights) |
 | [`motionformer.onnx`](file:///Users/test/Desktop/SIH/SIH_26037-Autonomous-Vehicles-on-Unstructured-Indian-Roads/Trajectory/motionformer.onnx) | Exported ONNX graph for MATLAB Deep Learning Toolbox ingestion |
 | [`trajectory_benchmark_results.mat`](file:///Users/test/Desktop/SIH/SIH_26037-Autonomous-Vehicles-on-Unstructured-Indian-Roads/Trajectory/trajectory_benchmark_results.mat) | Numerical benchmark results for MATLAB analysis and plotting |
-| [`trajectory_prediction_benchmark_results.png`](file:///Users/test/Desktop/SIH/SIH_26037-Autonomous-Vehicles-on-Unstructured-Indian-Roads/Trajectory/trajectory_prediction_benchmark_results.png) | High-resolution publication-quality 4-panel dashboard figure |
-| [`trajectory_ppt_slide_overview.png`](file:///Users/test/Desktop/SIH/SIH_26037-Autonomous-Vehicles-on-Unstructured-Indian-Roads/Trajectory/trajectory_ppt_slide_overview.png) | 16:9 Slide 1: Multi-Modal BEV Cross-Attention & Causal Pothole Avoidance |
-| [`trajectory_ppt_costmap_evolution.png`](file:///Users/test/Desktop/SIH/SIH_26037-Autonomous-Vehicles-on-Unstructured-Indian-Roads/Trajectory/trajectory_ppt_costmap_evolution.png) | 16:9 Slide 2: Spatio-Temporal vehicleCostmap Slices & Stateflow Hand-Off |
-| [`trajectory_ppt_5_scenarios_comparison.png`](file:///Users/test/Desktop/SIH/SIH_26037-Autonomous-Vehicles-on-Unstructured-Indian-Roads/Trajectory/trajectory_ppt_5_scenarios_comparison.png) | 16:9 Slide 3: 5-Scenario Quantitative Performance Benchmark & Latency Profile |
-| [`generate_ppt_visuals.py`](file:///Users/test/Desktop/SIH/SIH_26037-Autonomous-Vehicles-on-Unstructured-Indian-Roads/Trajectory/generate_ppt_visuals.py) | Standalone rendering script for 16:9 widescreen presentation figures |
+
