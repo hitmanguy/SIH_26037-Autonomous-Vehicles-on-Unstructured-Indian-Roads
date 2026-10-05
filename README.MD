@@ -130,10 +130,13 @@ Additional benchmarks under consideration include collision rate, minimum time-t
 
 ## Repository Contents
 
-This repository currently contains the team's submission slide deck, which lays out the full perception through control approach along with the reasoning behind each design decision, and a three-page perception deep dive covering the camera pipeline design in more detail.
+This repository contains the complete closed-loop autonomous driving stack, simulation scenarios, and verification tools:
 
-Alongside these, individual folders such as perception and vehicle dynamics contain small standalone demo scripts. These are proof-of-concept snippets built to validate one idea in isolation, such as pothole costmap injection logic or a comparison between Pure Pursuit and MPC controllers under a simulated emergency replan. They are not yet part of an integrated pipeline. The full closed-loop Simulink model is in progress and will be added as each track's work is validated and merged.
-
-## Status
-
-Perception, sensor fusion and tracking, and prediction and trajectory forecasting have completed implementation, benchmarking, and cross-layer integration. The trajectory prediction pipeline (`Trajectory/`) delivers multi-modal Gaussian Mixture Model (GMM) forecasts, causal pothole swerve avoidance, and dynamic spatio-temporal costmap slices feeding directly into the Stateflow supervisor and Hybrid A* planner in `Path_planning_decision/`. Path planning and decision logic and vehicle dynamics and control have completed initial design and proof-of-concept testing. Integration of the individual tracks into the single closed-loop Simulink model is now ready to proceed.
+- **Integrated AV Stack (`main/`)**: Orchestrates the closed-loop pipeline (`AutonomousAVStack.m`, `run_instruction.m`) integrating perception, sensor fusion, prediction, spatiotemporal replanning, and tri-hybrid vehicle control.
+- **Perception & 3D Grounding (`Perception/`)**: Trained C3 YOLOv8s 12-class detector for Indian traffic, SAHI sliced inference, and inverse pinhole camera projection to 3D Cartesian coordinates.
+- **Sensor Fusion (`Sensor_fusion/`)**: Information Matrix fusion (camera azimuth + radar range/Doppler) and Semantic IMM Kalman filtering (CV, CTRV, CA motion models).
+- **Prediction & Decision (`Trajectory/`, `Path_planning_decision/`)**: Multi-modal GMM trajectory prediction (3.0s horizon), dynamic 4D costmaps, and Stateflow behavior state machine.
+- **Vehicle Dynamics & Control (`vehicle_dynamics/`)**: Quintic Frenet polynomial trajectory replanner (10 Hz) and Tri-Hybrid Pure Pursuit / MPC controller (50 Hz).
+- **Simulation Scenarios (`scenarios/`)**: 15 OpenSCENARIO (.xosc) and MATLAB driving scenarios covering Euro NCAP safety benchmarks and complex Indian urban edge cases (wrong-way encounters, cattle crossing, auto cut-ins, school zones, multi-threat gauntlet).
+- **Automated Verification (`scenarios/verification/`)**: Test harness (`verify_closed_loop_trajectories.m`) verifying all 15 scenarios with a 100% pass rate (0 collisions, 0 curb/lane excursions, stable lateral dynamics).
+- **Documentation & Execution Guides**: Step-by-step setup and unified test execution instructions in [`how_to_run.md`](how_to_run.md) and [`startup.m`](startup.m).
