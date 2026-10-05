@@ -148,44 +148,11 @@ $$L_{\text{blend}} = L_{\text{nom}} (1 - \text{urgency}) + L_{\text{urg}} \times
 
 ---
 
-## 4. Benchmark Results Across 5 Indian Road Scenarios
 
-The complete planning pipeline was evaluated across 5 canonical unstructured driving challenges:
 
-| Scenario | Tactical Mode | Total Latency (ms) | Peak Curvature $\kappa$ ($\text{m}^{-1}$) | Peak Lateral Jerk ($\text{m/s}^3$) | Min Road Clearance (m) | Collision-Free? |
-| :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| **1. Auto-Rickshaw Cut-In** | `SLOW_DOWN` | $23.4\text{ ms}$ | $0.142\text{ m}^{-1}$ | $1.15\text{ m/s}^3$ | $1.20\text{ m}$ | **YES (100%)** |
-| **2. Stray Cow Freeze & Detour** | `STOP` $\to$ `REROUTE` | $18.2\text{ ms}$ | $0.000\text{ m}^{-1}$ | $0.00\text{ m/s}^3$ | $2.40\text{ m}$ | **YES (100%)** |
-| **3. Graded Pothole Negotiation** | `CRUISE` | $27.1\text{ ms}$ | $0.165\text{ m}^{-1}$ | $1.32\text{ m/s}^3$ | $1.05\text{ m}$ | **YES (100%)** |
-| **4. Unsignalled T-Junction Nudge**| `YIELD` | $21.8\text{ ms}$ | $0.088\text{ m}^{-1}$ | $0.85\text{ m/s}^3$ | $1.45\text{ m}$ | **YES (100%)** |
-| **5. Mixed Traffic Clutter** | `SLOW_DOWN` | $31.5\text{ ms}$ | $0.184\text{ m}^{-1}$ | $1.48\text{ m/s}^3$ | $0.92\text{ m}$ | **YES (100%)** |
-| **AVERAGE / WORST-CASE** | — | **$24.4\text{ ms}$** | **$0.184\text{ m}^{-1}$** | **$1.48\text{ m/s}^3$** | **$0.92\text{ m}$** | **100% COLLISION FREE** |
 
-- **Latency Guarantee:** Mean total replanning latency is **$24.4\text{ ms}$**, well within the $35\text{ ms}$ budget and $10\text{ Hz}$ replanning clock.
-- **Ride Comfort:** Peak lateral jerk across all evasive maneuvers is **$1.48\text{ m/s}^3$**, well below the ISO 2631 passenger discomfort threshold ($2.5\text{ m/s}^3$).
-- **Curvature Feasibility:** Maximum path curvature is **$0.184\text{ m}^{-1}$**, comfortably compliant with the vehicle mechanical steering limit ($0.220\text{ m}^{-1}$, $R_{\min} = 4.55\text{ m}$).
 
----
-
-## 5. High-Resolution Presentation Visuals
-
-The visualizer script generates three presentation slides:
-
-1. **[`planning_ppt_architecture_overview.png`](file:///Users/test/Desktop/SIH/SIH_26037-Autonomous-Vehicles-on-Unstructured-Indian-Roads/Path_planning_decision/planning_ppt_architecture_overview.png)**:
-   - Panel 1: BEV multi-layer dynamic costmap showing the soft virtual lane, graded potholes, dynamic GMM ellipses, and continuous QP spline trajectory.
-   - Panel 2: Convex corridor bounds $[X_{\min}, X_{\max}]$ and QP convergence.
-   - Panel 3: ST-domain longitudinal velocity governor with curvature, pothole, and forward-backward deceleration passes.
-   - Panel 4: Stateflow supervisory finite state machine flowchart.
-
-2. **[`planning_ppt_5_scenarios_comparison.png`](file:///Users/test/Desktop/SIH/SIH_26037-Autonomous-Vehicles-on-Unstructured-Indian-Roads/Path_planning_decision/planning_ppt_5_scenarios_comparison.png)**:
-   - Side-by-side comparison of vehicle trajectory and speed profile across all 5 benchmark scenarios with performance KPI cards.
-
-3. **[`planning_ppt_replan_blending.png`](file:///Users/test/Desktop/SIH/SIH_26037-Autonomous-Vehicles-on-Unstructured-Indian-Roads/Path_planning_decision/planning_ppt_replan_blending.png)**:
-   - Demonstrates elimination of steering wheel jerk and curvature spikes through the urgency-scaled $C^2$ quintic polynomial blending window.
-
----
-
-## 6. How to Run & Validate
+## 4. How to Run & Validate
 
 ### Running the Python Test Suite & Verification:
 ```bash
