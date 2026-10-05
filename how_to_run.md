@@ -36,9 +36,6 @@ Follow this unified workflow inside the **MATLAB Command Window**:
 
 ### Step 1: Open MATLAB & Navigate to Repository Root
 Ensure your current MATLAB working directory is the project root:
-```matlab
-cd 'D:\hackathon\SIH26'   % or your local cloned repository directory
-```
 
 ### Step 2: One-Click Environment Startup (`startup`)
 Run the unified startup script once to automatically register all modular subdirectories (`main`, `vehicle_dynamics`, `scenarios/matlab`, `scenarios/verification`, `perception`, `Sensor_fusion`, `Trajectory`, `Path_planning_decision`) onto the MATLAB path:
